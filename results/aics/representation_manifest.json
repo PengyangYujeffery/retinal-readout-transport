@@ -1,0 +1,27 @@
+{
+  "seed": 20260902,
+  "split_repeats": 5,
+  "target_local_cv": "5-fold repeated 5 times at patient level",
+  "bootstrap_replicates": 2000,
+  "gap_bootstrap": "patient resampling within sex-by-age and outcome strata",
+  "permutation_replicates": 10000,
+  "random_rank_matched_controls": 200,
+  "fairness_null": "patient-level subgroup-label permutation within max-image-outcome strata; patient score is max calibrated image probability; exact patient event and non-event support is preserved within every sex-by-age group",
+  "demographic_attributes": [
+    "sex",
+    "age >=65 years"
+  ],
+  "demographic_unit": "mean embedding per patient",
+  "demographic_coordinates": "source-training image-standardised shared coordinates for C selection, source/target readouts, direction comparison, and intervention",
+  "shared_coordinate_path": {
+    "c_selection": "source-training-image-standardised-patient-mean-coordinates",
+    "readout": "source-training-image-standardised-patient-mean-coordinates",
+    "direction": "source-training-image-standardised-patient-mean-coordinates"
+  },
+  "clinical_fairness_unit": "one record per patient",
+  "patient_outcome_aggregation": "max image outcome",
+  "patient_score_aggregation": "max calibrated image probability",
+  "clinical_outcome": "referable diabetic retinopathy, ICDR >= 2",
+  "residualization": "orthogonal projection away from source-trained linear demographic-probe coefficient directions in source-standardised embedding space",
+  "privacy": "aggregate outputs only; no identifiers, embeddings, models, or row-level predictions"
+}

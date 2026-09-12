@@ -1,0 +1,27 @@
+{
+  "seed": 20260902,
+  "split_seed_scheme": "seed + 101 * split_index; split 0 is the AICS primary split",
+  "split_repeats": 5,
+  "target_local_cv": "5-fold repeated 5 times at patient level",
+  "target_local_seed_scheme": "split_seed + 1000 * backbone_index + 100 * attribute_index",
+  "arms": [
+    "brset_to_mbrset",
+    "mbrset_to_brset",
+    "brset_to_mbrset_sizematched"
+  ],
+  "size_matched_arm": "BRSET -> mBRSET with the demographic probe tuned and fitted on a class-stratified subsample of labelled BRSET training and validation patients equal in number to the labelled mBRSET training and validation patients of the same split; coordinate, target patients and alignment maps are those of the full arm",
+  "alignment_methods": [
+    "unaligned",
+    "mean_variance",
+    "coral"
+  ],
+  "alignment_contract": "target patient embeddings are mapped to source-training-patient first/second moments without target demographic labels or clinical outcomes",
+  "coral_covariance": "Ledoit-Wolf shrinkage covariance",
+  "target_local_reference": "target-local probe fitted on unaligned target vectors",
+  "bootstrap": "2000 target-patient resamples shared across splits, methods and arms with the same target; conditional on fitted probes and alignment maps; 95% percentile intervals of split-mean statistics",
+  "outcome_stratification": "demographic probes are independently tuned and fitted within source patient referable-DR strata and evaluated within the corresponding target stratum",
+  "analysis_unit": "patient mean of image embeddings",
+  "coordinate_space": "source-training-image-standardised-patient-mean-coordinates",
+  "reproduction_gate": "passed",
+  "privacy": "aggregate outputs only; no identifiers, embeddings, models, or row-level predictions"
+}

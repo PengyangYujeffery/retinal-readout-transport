@@ -1,0 +1,13 @@
+backbone,attribute,evaluation,best_C,n_patients,n_positive,auroc,balanced_accuracy,auroc_ci_low,auroc_ci_high,coordinate_space
+vits16,sex,source_internal,0.01,1701,622,0.7737767791422927,0.6784580816463976,0.751121664454401,0.7961788746521886,source-training-image-standardised-patient-mean-coordinates
+vits16,sex,target_transported,0.01,1287,449,0.6202964955270529,0.5262064731490291,0.5886679524595597,0.6523150738061311,source-training-image-standardised-patient-mean-coordinates
+vits16,sex,target_local_cv,0.01,1287,449,0.7336669661034065,0.6162009450861368,0.7041437083107533,0.7610933442083243,source-training-image-standardised-patient-mean-coordinates
+vits16,age65,source_internal,0.1,1149,472,0.9215037678692135,0.8458975915679843,0.9050468311377751,0.937151645497458,source-training-image-standardised-patient-mean-coordinates
+vits16,age65,target_transported,0.1,1284,548,0.6156130990161852,0.5438600841002856,0.5851604539367109,0.6468036310993033,source-training-image-standardised-patient-mean-coordinates
+vits16,age65,target_local_cv,0.1,1284,548,0.8704850642653126,0.7793260076166296,0.8515750995422395,0.8893475208182378,source-training-image-standardised-patient-mean-coordinates
+convnext_tiny,sex,source_internal,0.1,1701,622,0.7362643748379618,0.6637524622357847,0.7110395351756731,0.7600862240850799,source-training-image-standardised-patient-mean-coordinates
+convnext_tiny,sex,target_transported,0.1,1287,449,0.5319378518160218,0.5138746405430259,0.49943182785270746,0.566886860735806,source-training-image-standardised-patient-mean-coordinates
+convnext_tiny,sex,target_local_cv,0.1,1287,449,0.7244473265968927,0.6227203384875433,0.6954840470072768,0.7520867520500515,source-training-image-standardised-patient-mean-coordinates
+convnext_tiny,age65,source_internal,0.1,1149,472,0.9117335953734071,0.8421750995168115,0.894352117284143,0.9282275684631293,source-training-image-standardised-patient-mean-coordinates
+convnext_tiny,age65,target_transported,0.1,1284,548,0.570404236750238,0.5164630276102824,0.539074007336754,0.6019126068108647,source-training-image-standardised-patient-mean-coordinates
+convnext_tiny,age65,target_local_cv,0.1,1284,548,0.8548079974611233,0.7586133370358616,0.8336151850085833,0.8759089632673344,source-training-image-standardised-patient-mean-coordinates

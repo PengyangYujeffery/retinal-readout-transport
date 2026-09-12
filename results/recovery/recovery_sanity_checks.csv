@@ -1,0 +1,17 @@
+backbone,direction,source,target,attribute,split_index,k,check,value,tolerance,passed
+vits16,brset_to_mbrset,brset,mbrset,sex,0,200,zero_prior_matches_sklearn_coef,1.0825551162268585e-08,0.001,True
+vits16,brset_to_mbrset,brset,mbrset,sex,0,200,strong_prior_matches_source_auroc,0.0,1e-06,True
+vits16,brset_to_mbrset,brset,mbrset,age65,0,200,zero_prior_matches_sklearn_coef,1.100184882957087e-06,0.001,True
+vits16,brset_to_mbrset,brset,mbrset,age65,0,200,strong_prior_matches_source_auroc,0.0,1e-06,True
+vits16,mbrset_to_brset,mbrset,brset,sex,0,200,zero_prior_matches_sklearn_coef,8.710991693064935e-10,0.001,True
+vits16,mbrset_to_brset,mbrset,brset,sex,0,200,strong_prior_matches_source_auroc,0.0,1e-06,True
+vits16,mbrset_to_brset,mbrset,brset,age65,0,200,zero_prior_matches_sklearn_coef,9.634225930148615e-07,0.001,True
+vits16,mbrset_to_brset,mbrset,brset,age65,0,200,strong_prior_matches_source_auroc,0.0,1e-06,True
+convnext_tiny,brset_to_mbrset,brset,mbrset,sex,0,200,zero_prior_matches_sklearn_coef,1.0530084057731698e-06,0.001,True
+convnext_tiny,brset_to_mbrset,brset,mbrset,sex,0,200,strong_prior_matches_source_auroc,0.0,1e-06,True
+convnext_tiny,brset_to_mbrset,brset,mbrset,age65,0,200,zero_prior_matches_sklearn_coef,9.521454473626552e-07,0.001,True
+convnext_tiny,brset_to_mbrset,brset,mbrset,age65,0,200,strong_prior_matches_source_auroc,0.0,1e-06,True
+convnext_tiny,mbrset_to_brset,mbrset,brset,sex,0,200,zero_prior_matches_sklearn_coef,3.1448777066952463e-06,0.001,True
+convnext_tiny,mbrset_to_brset,mbrset,brset,sex,0,200,strong_prior_matches_source_auroc,0.0,1e-06,True
+convnext_tiny,mbrset_to_brset,mbrset,brset,age65,0,200,zero_prior_matches_sklearn_coef,1.904734781870744e-06,0.001,True
+convnext_tiny,mbrset_to_brset,mbrset,brset,age65,0,200,strong_prior_matches_source_auroc,0.0,1e-06,True

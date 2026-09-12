@@ -1,0 +1,13 @@
+{
+  "purpose": "ceiling probe before any adaptation module; no new method",
+  "seed": 20260902,
+  "split_seed_scheme": "seed + 101 * split_index (as the extension run)",
+  "split_repeats": 5,
+  "target_local_cv": "5-fold repeated 5 times; same seeds as the extension run",
+  "self_training": "10 rounds; all target patients pseudo-labelled at the source training class proportion; L2 logistic refit with the source-selected C; no target labels used; evaluated on all labelled target patients",
+  "few_shot": "k in [10, 20, 50, 100, 200], 20 class-stratified draws per split; scratch = L2 logistic on k patients; anchored = L2-SP towards the source weights with the same C; evaluated on the remaining target patients",
+  "few_shot_interval": "2.5/97.5 percentiles over draws and splits (variability, not a CI)",
+  "bootstrap": "2000 target-patient resamples shared across splits; 95% percentile intervals of split means, conditional on fitted readouts",
+  "coordinate_space": "source-training-image-standardised-patient-mean-coordinates",
+  "privacy": "aggregate outputs only; no identifiers, embeddings, models, or row-level predictions"
+}
