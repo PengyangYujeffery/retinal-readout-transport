@@ -208,7 +208,7 @@ def main() -> int:
     )
     if args.require_reproduction_gate:
         gate = pd.read_csv(root / "reproduction_gate.csv")
-        require(len(gate) == 12, f"reproduction gate should cover 12 AICS rows, found {len(gate)}")
+        require(len(gate) == 12, f"reproduction gate should cover 12 reference rows, found {len(gate)}")
         require(bool(gate["passed"].astype(str).eq("True").all()), "reproduction gate failed")
         require(manifest.get("reproduction_gate") == "passed", "manifest does not record a passed gate")
     print("ICASSP extension aggregate contract: PASS")

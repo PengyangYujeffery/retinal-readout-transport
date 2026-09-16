@@ -12,13 +12,13 @@ die() {
 
 command -v wget >/dev/null 2>&1 || die "wget is required"
 
-data_root="${AICS_DATA_ROOT:-}"
-[[ -n "$data_root" ]] || die "Set AICS_DATA_ROOT to a protected MeluXina project path"
-[[ "$data_root" = /* ]] || die "AICS_DATA_ROOT must be an absolute path"
+data_root="${DATA_ROOT:-}"
+[[ -n "$data_root" ]] || die "Set DATA_ROOT to a protected MeluXina project path"
+[[ "$data_root" = /* ]] || die "DATA_ROOT must be an absolute path"
 
 case "$data_root" in
   /project/home/*|/project/scratch/*) ;;
-  *) die "AICS_DATA_ROOT must be under /project/home or /project/scratch" ;;
+  *) die "DATA_ROOT must be under /project/home or /project/scratch" ;;
 esac
 
 umask 077

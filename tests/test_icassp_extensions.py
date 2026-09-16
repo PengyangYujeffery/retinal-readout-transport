@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic end-to-end tests for the ICASSP extension pipeline.
 
-The reproduction test runs the AICS representation audit and the ICASSP
+The reproduction test runs the reference representation audit and the ICASSP
 extension on the same toy data: split 0 of BRSET -> mBRSET must reproduce the
 audit's demographic-probe AUROCs. A second run with a perturbed reference
 proves that the gate can fail.
@@ -52,7 +52,7 @@ class IcasspExtensionTest(unittest.TestCase):
         cls.temporary = tempfile.TemporaryDirectory(prefix="icassp-extension-")
         root = Path(cls.temporary.name)
         cls.data_root = root / "data"
-        cls.reference = root / "aics_reference"
+        cls.reference = root / "audit_reference"
         cls.output = root / "icassp"
         steps = (
             [sys.executable, str(ROOT / "tests" / "make_synthetic_data.py"), str(cls.data_root)],
@@ -103,7 +103,7 @@ class IcasspExtensionTest(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.temporary.cleanup()
 
-    def test_split_zero_reproduces_aics_audit(self) -> None:
+    def test_split_zero_reproduces_reference_audit(self) -> None:
         gate = pd.read_csv(self.output / "reproduction_gate.csv")
         self.assertEqual(len(gate), 12)
         self.assertTrue(gate["passed"].all(), gate.to_string())

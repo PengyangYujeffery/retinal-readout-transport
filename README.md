@@ -1,88 +1,82 @@
-# Demographic readout transport in frozen retinal embeddings
+# Do demographic readouts survive a change of hospital?
 
-Code and aggregate results for a study of whether a linear demographic readout (sex, age) learned on
-one retinal-imaging cohort remains valid on another, and of what does or does not repair it:
-label-free moment alignment (diagonal matching, CORAL), label-free self-training, few-shot
-re-estimation (from scratch or anchored to the source readout), and removal of the source-defined
-demographic directions.
+A linear probe that reads sex or age off a frozen medical-image embedding is a standard tool: people
+use it to measure how much demographic information a representation carries, and to define the
+direction they then project out to "remove" it. Almost always, the probe is trained and used in the
+same clinical setting.
 
-Cohorts: BRSET (tabletop cameras, ophthalmology centres) and mBRSET (handheld camera, community
-diabetes screening), both embedded by frozen DINOv3 ViT-S/16 and ConvNeXt-Tiny encoders.
+This repository holds the code and the aggregate results behind a study of what happens when you
+move that probe somewhere else — a probe trained on clinic fundus photographs (BRSET) applied to a
+handheld-camera screening cohort (mBRSET), and the same test in reverse.
 
-Paper: to be added.
+The short version: the probe stops working, matching the feature distributions does not bring it
+back, and only target labels do — for age mostly, for sex barely.
 
-## What is in this repository
+## What is in here
 
-- `scripts/` - the analyses and the asset generator.
-- `slurm/` - job scripts (CPU or a packed GPU node); adjust the account and paths for your cluster.
-- `tests/` - end-to-end tests on synthetic data, including a test that the reproduction gate fails
-  when it should.
-- `results/extension/`, `results/recovery/`, `results/aics/` - the aggregate outputs behind every
-  number, table and figure in the paper.
+`scripts/` has the analyses: the transport measurement, the alignment and self-training repairs, the
+few-shot re-estimation, and the script that turns the result tables into the numbers, tables and
+figures of the paper. `slurm/` has the job scripts we ran on MeluXina; they take the cluster account
+and paths from the environment, so you will need to adjust them for your own machine. `tests/` runs
+the whole chain on synthetic data, including a test that deliberately breaks the reproduction gate
+to check that it fails. `results/` holds every aggregate the paper reports.
 
-## What is not, and cannot be, in this repository
+## What is deliberately not in here
 
-No credentialed data of any kind: no patient or image identifiers, no metadata tables, no released
-embeddings, no fitted models, no row-level predictions. BRSET, mBRSET and the embeddings are
-available to credentialed PhysioNet users under a data use agreement; obtain them yourself and keep
-them in access-controlled storage. Every file under `results/` is an aggregate; the analysis scripts
-refuse to write anything else, and `validate_icassp_outputs.py` fails if an identifier-like column
-appears.
+No data. BRSET, mBRSET and the released embeddings are credentialed PhysioNet resources, and the
+data use agreement does not allow us to redistribute them, in whole or in part. That rules out the
+metadata tables, the embeddings, the fitted models and any row-level prediction. Everything under
+`results/` is an aggregate over patients; the analysis scripts refuse to write anything else, and
+`validate_icassp_outputs.py` fails if a column that looks like an identifier appears.
 
-## Environment
+If you want to reproduce the study, get credentialed on PhysioNet, sign the agreement, download the
+data yourself and keep it in access-controlled storage.
 
-Python 3.13 with numpy, pandas, scipy, scikit-learn and matplotlib; exact versions in
-`environment.txt` and `requirements.txt`. Results are sensitive to the solver environment: logistic
-readouts are fitted with scikit-learn's lbfgs at its default tolerance, and the stopping point moves
-slightly with the BLAS thread count. Reproduce with the same thread count as the run you compare
-against (the shipped results used 16 threads).
+## Running it
 
-## Reproducing
+Python 3.13 with numpy, pandas, scipy, scikit-learn and matplotlib; the exact versions we used are
+in `environment.txt` and `requirements.txt`.
 
-1. Tests on synthetic data, no credentialed data required:
+The tests need no data at all:
 
-       python -m unittest tests.test_icassp_extensions
-       python -m unittest tests.test_icassp_recovery
+    python -m unittest tests.test_icassp_extensions
+    python -m unittest tests.test_icassp_recovery
 
-2. Obtain the data (credentialed PhysioNet access required):
+With the data in place, the two analyses and the validator are:
 
-       export AICS_DATA_ROOT=<data-root>
-       bash scripts/download_physionet_data.sh
-       python scripts/verify_data.py --data-root "$AICS_DATA_ROOT"
+    export DATA_ROOT=<your data directory>
+    python scripts/run_icassp_extensions.py --data-root "$DATA_ROOT" \
+        --output-dir results/extension \
+        --reference-probe-metrics results/audit/demographic_probe_metrics.csv
+    python scripts/run_icassp_recovery_probe.py --data-root "$DATA_ROOT" \
+        --output-dir results/recovery
+    python scripts/validate_icassp_outputs.py --results-dir results/extension \
+        --require-reproduction-gate
 
-3. Run the analyses:
+and the paper's numbers, tables and figures come from
 
-       python scripts/run_icassp_extensions.py --data-root "$AICS_DATA_ROOT" \
-           --output-dir results/extension \
-           --reference-probe-metrics results/aics/demographic_probe_metrics.csv
-       python scripts/run_icassp_recovery_probe.py --data-root "$AICS_DATA_ROOT" \
-           --output-dir results/recovery
+    python scripts/generate_icassp_assets.py --extension-dir results/extension \
+        --recovery-dir results/recovery --audit-dir results/audit \
+        --cohort-summary results/audit/cohort_summary.csv --paper-dir paper
 
-4. Check the aggregate contract and the reproduction gate:
+One warning about reproducing our numbers exactly: the logistic readouts are fitted with
+scikit-learn's lbfgs at its default tolerance, and where it stops moves slightly with the BLAS thread
+count. We learned this the hard way — 32 threads against 16 was enough to break a 1e-6 reproduction
+gate. The shipped results were produced with 16 threads.
 
-       python scripts/validate_icassp_outputs.py --results-dir results/extension \
-           --require-reproduction-gate
+## How the numbers are kept honest
 
-5. Regenerate the paper's numbers, tables and figures:
+Every number in the paper is a macro written by `generate_icassp_assets.py`, so no result is typed by
+hand. The same script also asserts the paper's qualitative claims — that the penalty stays positive
+in every stratum, that self-training changes nothing worth reporting, and so on — and exits non-zero
+if a regeneration falsifies one of them. Split 0 of the main analysis has to reproduce an earlier
+audit of the same cohorts exactly, or the run stops. Shifting the target vectors, which cannot change
+a linear readout's AUROC, is checked to eight decimal places.
 
-       python scripts/generate_icassp_assets.py --extension-dir results/extension \
-           --recovery-dir results/recovery --aics-dir results/aics \
-           --cohort-summary results/aics/cohort_summary.csv --paper-dir paper
+## Citing this work
 
-`generate_icassp_assets.py` writes `numbers.tex` (every number in the paper is a macro from that
-file), the two tables, the two figures, a provenance file with the md5 of each input, and
-`claims_check.csv`: each qualitative statement in the paper is asserted there, and the script exits
-non-zero if a regeneration falsifies one.
-
-## Built-in checks
-
-- Reproduction gate: split 0 must reproduce the earlier audit run exactly (AUROC, selected C, n).
-- Translation invariance: shifting the target vectors must not change a linear readout's AUROC.
-- L2-SP invariants: a zero prior must reproduce scikit-learn; an overwhelming prior must return the
-  source readout.
-- Aggregate contract: coverage of the full design, finite values, and no identifier-like columns.
+A paper describing the study is under review; the citation will be added here once it is settled.
 
 ## License
 
-Code and aggregate results are released under the MIT License (see `LICENSE`). The underlying
-datasets are not redistributed here and remain under their own PhysioNet licences.
+MIT, see `LICENSE`. The datasets are not redistributed here and stay under their own PhysioNet terms.

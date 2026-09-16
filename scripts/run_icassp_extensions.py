@@ -9,9 +9,9 @@ Prespecified analyses
 ---------------------
 1. Repeat the complete readout-transport audit over independent patient-level
    source splits. Split ``s`` uses seed ``seed + 101 * s``, the same scheme as
-   the AICS intervention loop, so split 0 is the AICS primary split. When
+   the earlier intervention loop, so split 0 is the reference primary split. When
    ``--reference-probe-metrics`` is given, split 0 of BRSET -> mBRSET must
-   reproduce the AICS demographic-probe AUROCs or the run fails.
+   reproduce the reference demographic-probe AUROCs or the run fails.
 2. Evaluate transport in both directions (BRSET -> mBRSET, mBRSET -> BRSET)
    and in a size-matched BRSET -> mBRSET arm whose demographic probe is tuned
    and fitted on as many labelled source patients as the mBRSET -> BRSET probe
@@ -82,7 +82,7 @@ ARM_DATASETS = {FORWARD: ("brset", "mbrset"), REVERSE: ("mbrset", "brset"), SIZE
 ALIGNMENT_METHODS = ("unaligned", "mean_variance", "coral")
 TRANSLATION_TOLERANCE = 1e-9
 
-# AICS demographic_probe_metrics.csv evaluation -> (evaluation, method) here.
+# reference demographic_probe_metrics.csv evaluation -> (evaluation, method) here.
 REFERENCE_EVALUATIONS = {
     "source_internal": ("source_internal", "unaligned"),
     "target_transported": ("target_external", "unaligned"),
@@ -98,7 +98,7 @@ def parse_args() -> argparse.Namespace:
         "--seed",
         type=int,
         default=20260902,
-        help="base seed; split s uses seed + 101*s, so split 0 is the AICS primary split",
+        help="base seed; split s uses seed + 101*s, so split 0 is the reference primary split",
     )
     parser.add_argument("--split-repeats", type=int, default=5)
     parser.add_argument("--cv-repeats", type=int, default=5)
@@ -108,7 +108,7 @@ def parse_args() -> argparse.Namespace:
         "--reference-probe-metrics",
         type=Path,
         default=None,
-        help="AICS demographic_probe_metrics.csv; split 0 must reproduce it",
+        help="reference demographic_probe_metrics.csv; split 0 must reproduce it",
     )
     parser.add_argument("--reproduction-tolerance", type=float, default=1e-6)
     return parser.parse_args()
@@ -229,7 +229,7 @@ def prepare_context(
 ) -> Dict[str, object]:
     """Source split, shared coordinate and alignment maps for one direction.
 
-    Mirrors the AICS transport analysis: features are standardised with
+    Mirrors the reference transport analysis: features are standardised with
     source-training-image statistics, both cohorts are transformed and then
     averaged by patient. Alignment is estimated from source-training patients
     and all target patients, without target labels.
@@ -764,7 +764,7 @@ def main() -> int:
                     moment_rows.append(row)
 
             for attribute_index, attribute in enumerate(ATTRIBUTES):
-                # Split 0 reproduces the AICS target-local seed exactly.
+                # Split 0 reproduces the reference target-local seed exactly.
                 cv_seed = split_seed + 1000 * backbone_index + 100 * attribute_index
                 cap = labelled_counts(contexts[REVERSE], attribute)
                 for arm in ARMS:
@@ -868,7 +868,7 @@ def main() -> int:
 
     manifest = {
         "seed": args.seed,
-        "split_seed_scheme": "seed + 101 * split_index; split 0 is the AICS primary split",
+        "split_seed_scheme": "seed + 101 * split_index; split 0 is the reference primary split",
         "split_repeats": args.split_repeats,
         "target_local_cv": f"5-fold repeated {args.cv_repeats} times at patient level",
         "target_local_seed_scheme": "split_seed + 1000 * backbone_index + 100 * attribute_index",
@@ -909,7 +909,7 @@ def main() -> int:
         print("SANITY FAILURE: translation changed an external AUROC", file=sys.stderr)
         return 3
     if gate_status == "failed":
-        print("REPRODUCTION GATE FAILED: split 0 does not reproduce AICS", file=sys.stderr)
+        print("REPRODUCTION GATE FAILED: split 0 does not reproduce the reference audit", file=sys.stderr)
         return 4
     print(f"Completed ICASSP extensions (reproduction gate: {gate_status}). Outputs: {output}")
     return 0

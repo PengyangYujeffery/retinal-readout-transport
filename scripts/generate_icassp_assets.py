@@ -47,10 +47,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recovery-dir", required=True, type=Path)
     parser.add_argument("--cohort-summary", required=True, type=Path)
     parser.add_argument(
-        "--aics-dir",
+        "--audit-dir",
         required=True,
         type=Path,
-        help="AICS representation-audit outputs (the gated submission run) for the removal analysis",
+        help="reference representation-audit outputs (the gated submission run) for the removal analysis",
     )
     parser.add_argument("--paper-dir", required=True, type=Path)
     return parser.parse_args()
@@ -114,12 +114,12 @@ def main() -> int:
     rec_sanity = pd.read_csv(rec / "recovery_sanity_checks.csv")
     rec_manifest = json.loads((rec / "recovery_manifest.json").read_text(encoding="utf-8"))
     cohort = pd.read_csv(args.cohort_summary).set_index("dataset")
-    aics = args.aics_dir
-    aics_manifest = json.loads((aics / "representation_manifest.json").read_text(encoding="utf-8"))
-    metric_contrasts = pd.read_csv(aics / "residualization_metric_contrasts.csv")
-    gap_contrasts = pd.read_csv(aics / "residualization_gap_contrasts.csv")
-    residual_gaps = pd.read_csv(aics / "residualization_gaps.csv")
-    random_controls = pd.read_csv(aics / "random_projection_controls.csv")
+    audit = args.audit_dir
+    audit_manifest = json.loads((audit / "representation_manifest.json").read_text(encoding="utf-8"))
+    metric_contrasts = pd.read_csv(audit / "residualization_metric_contrasts.csv")
+    gap_contrasts = pd.read_csv(audit / "residualization_gap_contrasts.csv")
+    residual_gaps = pd.read_csv(audit / "residualization_gaps.csv")
+    random_controls = pd.read_csv(audit / "random_projection_controls.csv")
 
     claims.add("reproduction gate passed (12/12)", len(gate) == 12 and gate["passed"].astype(str).eq("True").all()
                and ext_manifest.get("reproduction_gate") == "passed", f"{int(gate['passed'].astype(str).eq('True').sum())}/12")
@@ -305,7 +305,7 @@ def main() -> int:
     claims.add("sex: L2-SP beats scratch at the smallest k in every setting",
                len(anchored) == 4 and (anchored["anchored_minus_scratch"] > 0).all(), macros["icFsAnchorSexMin"])
 
-    # 3.4 Removal of source-defined directions (AICS audit outputs, BRSET -> mBRSET only).
+    # 3.4 Removal of source-defined directions (reference audit outputs, BRSET -> mBRSET only).
     removal_auc = metric_contrasts[
         (metric_contrasts["setting"] == "external_full") & (metric_contrasts["method"] == "joint_erased")
         & (metric_contrasts["metric"] == "auroc")
@@ -316,8 +316,8 @@ def main() -> int:
     ]
     claims.add("removal contrasts cover both backbones", len(removal_auc) == 2 and len(removal_gap) == 2,
                f"{len(removal_auc)}/{len(removal_gap)}")
-    macros["icRmSplits"] = str(int(aics_manifest["split_repeats"]))
-    macros["icRmRandN"] = str(int(aics_manifest["random_rank_matched_controls"]))
+    macros["icRmSplits"] = str(int(audit_manifest["split_repeats"]))
+    macros["icRmRandN"] = str(int(audit_manifest["random_rank_matched_controls"]))
     low_auc = float(removal_auc["min_method_minus_baseline"].min())
     high_auc = float(removal_auc["max_method_minus_baseline"].max())
     macros["icRmAucMin"], macros["icRmAucMax"] = signed4(low_auc), signed4(high_auc)
@@ -340,7 +340,7 @@ def main() -> int:
         at_most = int((controls_gap <= float(observed.iloc[0]) + 1e-12).sum())
         macros[f"icRmRandLe{tag}"] = str(at_most)
         claims.add(f"{backbone}: random-projection count matches the manifest",
-                   len(controls_gap) == int(aics_manifest["random_rank_matched_controls"]), str(len(controls_gap)))
+                   len(controls_gap) == int(audit_manifest["random_rank_matched_controls"]), str(len(controls_gap)))
         claims.add(f"{backbone}: source-defined removal is no better than 95% of random projections",
                    at_most >= 0.05 * len(controls_gap), f"{at_most}/{len(controls_gap)}")
 
@@ -504,9 +504,9 @@ def main() -> int:
 
     inputs = sorted(list(ext.glob("*.csv")) + list(ext.glob("*.json")) + list(rec.glob("*.csv"))
                     + list(rec.glob("*.json")) + [args.cohort_summary]
-                    + [aics / "representation_manifest.json", aics / "residualization_metric_contrasts.csv",
-                       aics / "residualization_gap_contrasts.csv", aics / "residualization_gaps.csv",
-                       aics / "random_projection_controls.csv"])
+                    + [audit / "representation_manifest.json", audit / "residualization_metric_contrasts.csv",
+                       audit / "residualization_gap_contrasts.csv", audit / "residualization_gaps.csv",
+                       audit / "random_projection_controls.csv"])
     (paper / "numbers_provenance.json").write_text(json.dumps(
         {"inputs": {str(path): md5(path) for path in inputs}, "n_macros": len(macros)}, indent=2), encoding="utf-8")
     pd.DataFrame(claims.rows).to_csv(paper / "claims_check.csv", index=False)

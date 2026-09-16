@@ -15,8 +15,8 @@
 
 set -Eeuo pipefail
 
-project_root="${AICS_PROJECT_ROOT:?Set AICS_PROJECT_ROOT to the repository path}"
-data_root="${AICS_DATA_ROOT:?Set AICS_DATA_ROOT to the protected data path}"
+project_root="${PROJECT_ROOT:?Set PROJECT_ROOT to the repository path}"
+data_root="${DATA_ROOT:?Set DATA_ROOT to the protected data path}"
 extension_output="${ICASSP_OUTPUT_DIR:-$project_root/outputs/icassp}"
 recovery_output="${RECOVERY_OUTPUT_DIR:-$project_root/outputs/icassp_recovery}"
 reference="${ICASSP_REFERENCE:-$project_root/outputs/representation_submission_20260908/demographic_probe_metrics.csv}"

@@ -1,0 +1,37 @@
+{
+  "title": "Demographic readout transport in frozen retinal embeddings: code and aggregate results",
+  "description": "Code and aggregate results for a study of whether a linear probe that predicts sex or age from frozen retinal embeddings remains valid when it is moved to another clinical setting (BRSET clinic photographs and mBRSET handheld screening photographs), and of what repairs it: moment alignment, self-training and few-shot re-estimation. No credentialed data is included; every file under results/ is an aggregate over patients.",
+  "upload_type": "software",
+  "license": "MIT",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Yu, Pengyang",
+      "affiliation": "School of Computer Science, University College Dublin",
+      "orcid": "0009-0004-8298-7925"
+    },
+    {
+      "name": "Cai, Yukai",
+      "affiliation": "School of Computer Science, University College Dublin",
+      "orcid": "0009-0009-1491-881X"
+    },
+    {
+      "name": "Dhelim, Sahraoui",
+      "affiliation": "Dublin City University",
+      "orcid": "0000-0002-3620-1395"
+    },
+    {
+      "name": "Kechadi, M. Tahar",
+      "affiliation": "School of Computer Science, University College Dublin",
+      "orcid": "0000-0002-0176-6281"
+    }
+  ],
+  "keywords": [
+    "domain shift",
+    "representation alignment",
+    "linear probing",
+    "fundus imaging",
+    "fairness",
+    "medical imaging"
+  ]
+}

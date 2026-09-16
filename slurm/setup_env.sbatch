@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=aics-env
+#SBATCH --job-name=audit-env
 #SBATCH --partition=cpu
 #SBATCH --qos=default
 #SBATCH --nodes=1
@@ -12,7 +12,7 @@
 
 set -Eeuo pipefail
 
-project_root="${AICS_PROJECT_ROOT:?Set AICS_PROJECT_ROOT to the repository path}"
+project_root="${PROJECT_ROOT:?Set PROJECT_ROOT to the repository path}"
 mkdir -p "$project_root/logs"
 
 module load env/release/2025.1
