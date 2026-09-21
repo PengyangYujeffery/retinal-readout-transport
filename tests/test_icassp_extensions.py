@@ -16,6 +16,7 @@ import sys
 import tempfile
 import unittest
 
+import numpy as np
 import pandas as pd
 
 
@@ -117,7 +118,10 @@ class IcasspExtensionTest(unittest.TestCase):
             set(penalties["direction"]),
             {"brset_to_mbrset", "mbrset_to_brset", "brset_to_mbrset_sizematched"},
         )
-        self.assertEqual(set(penalties["method"]), {"unaligned", "mean_variance", "coral"})
+        self.assertEqual(
+            set(penalties["method"]),
+            {"unaligned", "mean_variance", "coral", "subspace", "ot_gaussian", "ot_entropic"},
+        )
         self.assertEqual(penalties["split_index"].nunique(), 2)
 
     def test_alignment_matches_the_source_mean(self) -> None:
@@ -130,9 +134,15 @@ class IcasspExtensionTest(unittest.TestCase):
             columns="method",
             values="mean_l2_distance",
         )
-        self.assertLess(float(pivot["coral"].max()), 1e-4)
-        self.assertLess(float(pivot["mean_variance"].max()), 1e-4)
+        for method in ("coral", "mean_variance", "subspace", "ot_gaussian"):
+            self.assertLess(float(pivot[method].max()), 1e-4, msg=method)
         self.assertGreater(float(pivot["unaligned"].min()), 1e-3)
+        # The entropic-OT barycentric map is not affine and does not centre exactly, but it must
+        # still move the target closer to the source mean than no alignment at all.
+        self.assertLess(float(pivot["ot_entropic"].max()), float(pivot["unaligned"].min()))
+
+        # A sample-covariance distance is a diagnostic, not an invariant, for any of the maps that
+        # target a shrunk covariance, so the Gaussian OT map is checked directly instead, below.
 
     def test_gate_fails_on_a_perturbed_reference(self) -> None:
         reference = pd.read_csv(self.reference / "demographic_probe_metrics.csv")
@@ -155,6 +165,71 @@ class IcasspExtensionTest(unittest.TestCase):
             self.environment,
         )
         self.assertEqual(completed.returncode, 4, completed.stdout[-4000:])
+
+
+class LabelFreeRepairTest(unittest.TestCase):
+    """Properties of the three repairs added on 2026-09-18, checked on their own.
+
+    They are asserted here rather than on the pipeline's synthetic cohorts because those are small
+    enough that Ledoit--Wolf shrinkage dominates, which makes a sample-covariance distance a
+    diagnostic rather than an invariant.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        rng = np.random.default_rng(20260918)
+        dimension = 16
+        cls.source = rng.normal(size=(1200, dimension)) * np.linspace(1.0, 3.0, dimension) + 4.0
+        cls.target = rng.normal(size=(900, dimension)) * np.linspace(3.0, 1.0, dimension) - 2.0
+
+    @staticmethod
+    def relative_covariance_distance(values: np.ndarray, reference: np.ndarray) -> float:
+        difference = np.cov(values, rowvar=False) - np.cov(reference, rowvar=False)
+        return float(
+            np.linalg.norm(difference) / np.linalg.norm(np.cov(reference, rowvar=False))
+        )
+
+    def test_gaussian_ot_map_matches_the_source_covariance(self) -> None:
+        from run_icassp_extensions import gaussian_ot_target_to_source
+
+        aligned = gaussian_ot_target_to_source(self.source, self.target)
+        before = self.relative_covariance_distance(self.target, self.source)
+        after = self.relative_covariance_distance(aligned, self.source)
+        # The map matches the Ledoit--Wolf covariances, not the sample ones, so a residual of about
+        # a tenth against the sample covariance is the shrinkage, not a defect. What must hold is
+        # that the mismatch is reduced by a large factor.
+        self.assertLess(after, 0.25)
+        self.assertLess(after, before / 5.0)
+
+    def test_subspace_alignment_is_affine_and_centred(self) -> None:
+        from run_icassp_extensions import subspace_alignment_target_to_source
+
+        aligned, diagnostic = subspace_alignment_target_to_source(self.source, self.target)
+        self.assertLess(float(np.linalg.norm(aligned.mean(axis=0) - self.source.mean(axis=0))), 1e-3)
+        self.assertGreaterEqual(diagnostic["subspace_source_variance"], 0.95)
+        # Affine: the map of a convex combination is that combination of the maps.
+        pair = self.target[:2]
+        mixed, _ = subspace_alignment_target_to_source(
+            self.source, np.vstack([pair, 0.5 * pair[0] + 0.5 * pair[1]])
+        )
+        # The fitted map depends on the cloud, so compare directions rather than absolute points.
+        self.assertLess(
+            float(np.linalg.norm(mixed[2] - 0.5 * (mixed[0] + mixed[1]))),
+            1e-3 * float(np.linalg.norm(mixed[2])),
+        )
+
+    def test_entropic_ot_does_not_collapse_the_cloud(self) -> None:
+        from run_icassp_extensions import OT_MINIMUM_VARIANCE_KEPT, entropic_ot_target_to_source
+
+        aligned, diagnostic = entropic_ot_target_to_source(self.source, self.target, 3)
+        self.assertGreater(diagnostic["ot_variance_kept"], OT_MINIMUM_VARIANCE_KEPT)
+        self.assertLess(
+            float(np.linalg.norm(aligned.mean(axis=0) - self.source.mean(axis=0))),
+            float(np.linalg.norm(self.target.mean(axis=0) - self.source.mean(axis=0))),
+        )
+        # The map must move patients to different places, or the probe sees one constant score.
+        self.assertGreater(float(np.median(np.std(aligned, axis=0))), 0.0)
 
 
 if __name__ == "__main__":

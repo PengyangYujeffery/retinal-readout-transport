@@ -1,4 +1,4 @@
-# Do demographic readouts survive a change of hospital?
+# Do demographic probes survive a change of hospital?
 
 A linear probe that reads sex or age off a frozen medical-image embedding is a standard tool: people
 use it to measure how much demographic information a representation carries, and to define the
@@ -13,6 +13,13 @@ The short version: the probe stops working, matching the feature distributions d
 back, and only target labels do — for age mostly, for sex barely.
 
 ## What is in here
+
+Release v1.1 adds the repairs the reviewers of a first draft would ask for: besides diagonal
+mean-variance matching and CORAL, the alignment test now covers subspace alignment, the Gaussian
+optimal-transport map and an entropic optimal-transport barycentric map — the last one is not
+affine, so it is not covered by the argument that bounds the affine family — and self-training now
+runs in two schemes, one pseudo-labelling every target patient and one keeping only the confident
+half. None of them closes more than a quarter of the transport penalty in any setting.
 
 `scripts/` has the analyses: the transport measurement, the alignment and self-training repairs, the
 few-shot re-estimation, and the script that turns the result tables into the numbers, tables and
@@ -59,7 +66,7 @@ and the paper's numbers, tables and figures come from
         --recovery-dir results/recovery --audit-dir results/audit \
         --cohort-summary results/audit/cohort_summary.csv --paper-dir paper
 
-One warning about reproducing our numbers exactly: the logistic readouts are fitted with
+One warning about reproducing our numbers exactly: the logistic probes are fitted with
 scikit-learn's lbfgs at its default tolerance, and where it stops moves slightly with the BLAS thread
 count. We learned this the hard way — 32 threads against 16 was enough to break a 1e-6 reproduction
 gate. The shipped results were produced with 16 threads.
@@ -71,7 +78,7 @@ hand. The same script also asserts the paper's qualitative claims — that the p
 in every stratum, that self-training changes nothing worth reporting, and so on — and exits non-zero
 if a regeneration falsifies one of them. Split 0 of the main analysis has to reproduce an earlier
 audit of the same cohorts exactly, or the run stops. Shifting the target vectors, which cannot change
-a linear readout's AUROC, is checked to eight decimal places.
+a linear probe's AUROC, is checked to eight decimal places.
 
 ## Citing this work
 

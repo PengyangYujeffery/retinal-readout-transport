@@ -85,8 +85,11 @@ class RecoveryProbeTest(unittest.TestCase):
         self.assertTrue(few_shot["auroc"].between(0, 1).all())
         trajectories = pd.read_csv(self.output / "self_training_by_split.csv")
         self.assertEqual(set(trajectories["round"]), {0, 1, 2, 3})
+        self.assertEqual(set(trajectories["scheme"]), {"self_training", "confident_self_training"})
         intervals = pd.read_csv(self.output / "self_training_intervals.csv")
-        self.assertEqual(len(intervals), 2 * 2 * 2 * 5)
+        # Eight statistics per backbone, attribute and direction: source, target-local and the two
+        # self-training schemes, each with its change against the source probe and its remaining penalty.
+        self.assertEqual(len(intervals), 2 * 2 * 2 * 8)
         self.assertTrue(np.isfinite(intervals[["estimate", "ci_low", "ci_high"]].to_numpy(float)).all())
 
     def test_round_zero_is_the_source_readout(self) -> None:

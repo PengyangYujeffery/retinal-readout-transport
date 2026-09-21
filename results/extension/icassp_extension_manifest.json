@@ -1,6 +1,6 @@
 {
   "seed": 20260902,
-  "split_seed_scheme": "seed + 101 * split_index; split 0 is the reference primary split",
+  "split_seed_scheme": "seed + 101 * split_index; split 0 is the AICS primary split",
   "split_repeats": 5,
   "target_local_cv": "5-fold repeated 5 times at patient level",
   "target_local_seed_scheme": "split_seed + 1000 * backbone_index + 100 * attribute_index",
@@ -13,7 +13,10 @@
   "alignment_methods": [
     "unaligned",
     "mean_variance",
-    "coral"
+    "coral",
+    "subspace",
+    "ot_gaussian",
+    "ot_entropic"
   ],
   "alignment_contract": "target patient embeddings are mapped to source-training-patient first/second moments without target demographic labels or clinical outcomes",
   "coral_covariance": "Ledoit-Wolf shrinkage covariance",

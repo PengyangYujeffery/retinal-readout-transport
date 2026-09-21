@@ -62,6 +62,9 @@ from run_icassp_extensions import (  # noqa: E402
 
 # "source_readout", not "source": the frames already carry a "source" dataset column.
 FEW_SHOT_METHODS = ("source_readout", "scratch", "anchored", "target_local")
+# Pre-registered 2026-09-17: the second self-training scheme keeps the most confident half of each
+# pseudo-class. Fixed before the first run, never tuned against a result.
+CONFIDENCE_FRACTION = 0.5
 ZERO_PRIOR_COEF_TOLERANCE = 1e-3  # relative L2 difference of coefficient vectors
 STRONG_PRIOR_C = 1e-12
 STRONG_PRIOR_AUROC_TOLERANCE = 1e-6
@@ -142,18 +145,38 @@ def self_training(
     prevalence: float,
     c_value: float,
     rounds: int,
+    confidence_fraction: float = 1.0,
 ) -> Tuple[List[float], np.ndarray]:
-    """Refit the readout on its own pseudo-labels; round 0 is the source readout."""
+    """Refit the readout on its own pseudo-labels; round 0 is the source readout.
+
+    ``confidence_fraction`` < 1 keeps only that share of each pseudo-class,
+    the patients furthest from the decision threshold. It is the second
+    self-training scheme pre-registered on 2026-09-17: the standard objection
+    to the first is that pseudo-labelling every patient propagates the source
+    probe's mistakes, so the confident variant is the fairer test.
+    """
     coef, intercept = source_coef, source_intercept
     x_all = np.asarray(target_all, dtype=np.float64)
     x_labelled = np.asarray(target_labelled, dtype=np.float64)
     trajectory = [auroc(target_y, x_labelled @ coef)]
     for _ in range(rounds):
         scores = x_all @ coef + intercept
-        pseudo = (scores >= np.quantile(scores, 1.0 - prevalence)).astype(int)
+        threshold = np.quantile(scores, 1.0 - prevalence)
+        pseudo = (scores >= threshold).astype(int)
         if pseudo.min() == pseudo.max():
             raise RuntimeError("self-training pseudo-labels collapsed to one class")
-        coef, intercept = linear_parameters(fit_probe(target_all, pseudo, c_value, scale=False))
+        x_round, y_round = target_all, pseudo
+        if confidence_fraction < 1.0:
+            margin = np.abs(scores - threshold)
+            keep = np.zeros(len(scores), dtype=bool)
+            for value in (0, 1):
+                members = np.flatnonzero(pseudo == value)
+                ordered = members[np.argsort(-margin[members])]
+                keep[ordered[: max(1, int(round(confidence_fraction * len(members))))]] = True
+            x_round, y_round = target_all[keep], pseudo[keep]
+            if y_round.min() == y_round.max():
+                raise RuntimeError("confident self-training kept only one class")
+        coef, intercept = linear_parameters(fit_probe(x_round, y_round, c_value, scale=False))
         trajectory.append(auroc(target_y, x_labelled @ coef))
     return trajectory, x_labelled @ coef
 
@@ -219,31 +242,45 @@ def main() -> int:
                     local_auroc = auroc(target_y, local)
                     source_score = x_labelled.astype(np.float64) @ source_coef
 
-                    trajectory, self_trained = self_training(
-                        source_coef,
-                        source_intercept,
-                        target_all,
-                        x_labelled,
-                        target_y,
-                        float(source_y[train].mean()),
-                        best_c,
-                        args.self_training_rounds,
-                    )
-                    for round_index, value in enumerate(trajectory):
-                        trajectory_rows.append(
-                            {
-                                **labels,
-                                "round": round_index,
-                                "auroc": value,
-                                "source_auroc": trajectory[0],
-                                "target_local_auroc": local_auroc,
-                                "best_C": best_c,
-                                "n_target_unlabelled": int(len(target_all)),
-                                "n_target_labelled": int(len(target_y)),
-                            }
+                    scored = {}
+                    for scheme, fraction in (
+                        ("self_training", 1.0),
+                        ("confident_self_training", CONFIDENCE_FRACTION),
+                    ):
+                        trajectory, scored[scheme] = self_training(
+                            source_coef,
+                            source_intercept,
+                            target_all,
+                            x_labelled,
+                            target_y,
+                            float(source_y[train].mean()),
+                            best_c,
+                            args.self_training_rounds,
+                            confidence_fraction=fraction,
                         )
+                        for round_index, value in enumerate(trajectory):
+                            trajectory_rows.append(
+                                {
+                                    **labels,
+                                    "scheme": scheme,
+                                    "confidence_fraction": fraction,
+                                    "round": round_index,
+                                    "auroc": value,
+                                    "source_auroc": trajectory[0],
+                                    "target_local_auroc": local_auroc,
+                                    "best_C": best_c,
+                                    "n_target_unlabelled": int(len(target_all)),
+                                    "n_target_labelled": int(len(target_y)),
+                                }
+                            )
                     store.setdefault((direction, attribute), []).append(
-                        {"y": target_y, "local": local, "source": source_score, "self_trained": self_trained}
+                        {
+                            "y": target_y,
+                            "local": local,
+                            "source": source_score,
+                            "self_trained": scored["self_training"],
+                            "self_trained_confident": scored["confident_self_training"],
+                        }
                     )
 
                     index = np.arange(len(target_y))
@@ -332,7 +369,7 @@ def main() -> int:
                 for s, arrays in enumerate(splits):
                     if not np.array_equal(arrays["y"], y):
                         raise AssertionError("target patients differ across splits")
-                    for kind in ("local", "source", "self_trained"):
+                    for kind in ("local", "source", "self_trained", "self_trained_confident"):
                         vectors[(direction, kind, s)] = arrays[kind]
                 mean = 1.0 / len(splits)
 
@@ -358,6 +395,18 @@ def main() -> int:
                     (
                         {**label, "statistic": "remaining_penalty_after_self_training"},
                         {**weight("local"), **weight("self_trained", -1.0)},
+                    ),
+                    (
+                        {**label, "statistic": "self_trained_confident_auroc"},
+                        weight("self_trained_confident"),
+                    ),
+                    (
+                        {**label, "statistic": "confident_self_trained_minus_source_auroc"},
+                        {**weight("self_trained_confident"), **weight("source", -1.0)},
+                    ),
+                    (
+                        {**label, "statistic": "remaining_penalty_after_confident_self_training"},
+                        {**weight("local"), **weight("self_trained_confident", -1.0)},
                     ),
                 ]
                 interval_rows.extend(

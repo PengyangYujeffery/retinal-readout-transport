@@ -14,9 +14,11 @@ import pandas as pd
 BACKBONES = {"vits16", "convnext_tiny"}
 DIRECTIONS = {"brset_to_mbrset", "mbrset_to_brset", "brset_to_mbrset_sizematched"}
 ATTRIBUTES = {"sex", "age65"}
-METHODS = {"unaligned", "mean_variance", "coral"}
-# Per backbone and attribute: 3 arms x 9 statistics + 2 size-matched contrasts.
-BOOTSTRAP_ROWS_PER_CELL = 3 * 9 + 2
+METHODS = {"unaligned", "mean_variance", "coral", "subspace", "ot_gaussian", "ot_entropic"}
+# Per backbone and attribute and arm: target-local, then external AUROC and penalty for each of the
+# six methods, then the change against unaligned for each of the five repairs; plus 2 size-matched
+# contrasts per cell.
+BOOTSTRAP_ROWS_PER_CELL = 3 * (1 + 2 * len(METHODS) + (len(METHODS) - 1)) + 2
 
 
 def parse_args() -> argparse.Namespace:

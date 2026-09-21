@@ -19,10 +19,12 @@ Prespecified analyses
    patients and alignment maps of the full BRSET -> mBRSET arm, so source
    label count is the only change. It separates sample size from setting when
    the two directions differ.
-3. Compare the unchanged source readout with two label-free target-to-source
-   moment alignments of the target patient vectors: diagonal mean/variance
-   matching and Ledoit--Wolf CORAL. Neither uses target demographics or
-   outcomes.
+3. Compare the unchanged source readout with five label-free target-to-source
+   alignments of the target patient vectors: diagonal mean/variance matching,
+   Ledoit--Wolf CORAL, subspace alignment, the Gaussian optimal-transport map
+   and an entropic optimal-transport barycentric map. The first four are
+   affine; the last is not, which tests the reach of the affine argument. None
+   uses target demographics or outcomes.
 4. Secondary: demographic probes tuned, fitted and evaluated within
    referable-DR-negative and referable-DR-positive patients.
 
@@ -48,6 +50,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy.special import logsumexp
 from sklearn.covariance import LedoitWolf
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -79,8 +82,37 @@ DIRECTIONS: Tuple[Tuple[str, str, str], ...] = (
 )
 ARMS = (FORWARD, REVERSE, SIZE_MATCHED)
 ARM_DATASETS = {FORWARD: ("brset", "mbrset"), REVERSE: ("mbrset", "brset"), SIZE_MATCHED: ("brset", "mbrset")}
-ALIGNMENT_METHODS = ("unaligned", "mean_variance", "coral")
+ALIGNMENT_METHODS = (
+    "unaligned",
+    "mean_variance",
+    "coral",
+    "subspace",
+    "ot_gaussian",
+    "ot_entropic",
+)
 TRANSLATION_TOLERANCE = 1e-9
+
+# Pre-registered on 2026-09-17 (ICASSP_2027_RECORD.md), fixed before the first run so that no
+# hyper-parameter is chosen after seeing a result. Subspace alignment and the Gaussian OT map are
+# affine, so Eq. (2) of the paper covers them; the entropic-OT barycentric map is not, which is
+# exactly why it is included.
+SUBSPACE_VARIANCE = 0.95
+# Amended 2026-09-18, before any AUROC was computed, on a geometry-only diagnostic: at a fixed scale
+# of 0.05 the Sinkhorn plan is so diffuse that each target patient is spread over about 1,400 source
+# patients and the mapped cloud keeps 0.06% of the source variance -- every patient lands on almost
+# the same point, which would make this repair fail for a numerical reason. The scale is therefore
+# chosen per split by an outcome-blind rule: the smallest in the grid whose iteration converges,
+# i.e. the sharpest transport plan that can be computed reliably. No label or AUROC enters the choice.
+OT_REGULARISATION_GRID = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05)
+# Iteration budget per scale, not a convergence target: a smaller scale needs more iterations (585 at
+# 0.001 and 161 at 0.002 in the diagnostic), so a budget of 300 selects the sharpest plan that is
+# affordable 20 times over and bounds the worst case at 6 x 300 iterations per split. Compute only;
+# no label, AUROC or penalty enters it.
+OT_ITERATIONS = 300
+OT_TOLERANCE = 1e-7
+OT_MINIMUM_VARIANCE_KEPT = 0.01
+OT_SOURCE_CAP = 3000
+OT_SEED_OFFSET = 77
 
 # reference demographic_probe_metrics.csv evaluation -> (evaluation, method) here.
 REFERENCE_EVALUATIONS = {
@@ -195,6 +227,134 @@ def coral_target_to_source(
     return aligned.astype(np.float32), diagnostic
 
 
+def subspace_alignment_target_to_source(
+    source_reference: np.ndarray, target: np.ndarray
+) -> Tuple[np.ndarray, Dict[str, float]]:
+    """Subspace alignment (Fernando et al., ICCV 2013) as a target-to-source map.
+
+    Target vectors are expressed in the leading target principal directions,
+    those coordinates are read in the matching source directions, and the
+    result is recentred on the source mean, so the fixed source probe applies
+    unchanged. The number of components is the smallest that explains
+    ``SUBSPACE_VARIANCE`` of the source-training variance, which uses no target
+    labels. The map is affine.
+    """
+    source_reference = np.asarray(source_reference, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+    source_mean = source_reference.mean(axis=0)
+    target_mean = target.mean(axis=0)
+    _, source_values, source_vt = np.linalg.svd(source_reference - source_mean, full_matrices=False)
+    _, _, target_vt = np.linalg.svd(target - target_mean, full_matrices=False)
+    spectrum = np.square(source_values)
+    explained = np.cumsum(spectrum) / max(float(spectrum.sum()), 1e-12)
+    components = int(min(np.searchsorted(explained, SUBSPACE_VARIANCE) + 1, len(source_vt), len(target_vt)))
+    aligned = (target - target_mean) @ (target_vt[:components].T @ source_vt[:components]) + source_mean
+    if not np.isfinite(aligned).all():
+        raise FloatingPointError("subspace alignment produced non-finite values")
+    return aligned.astype(np.float32), {
+        "subspace_components": float(components),
+        "subspace_source_variance": float(explained[components - 1]),
+    }
+
+
+def gaussian_ot_target_to_source(source_reference: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """Monge map between Gaussians fitted to the two clouds; affine.
+
+    ``A = S_t^{-1/2} (S_t^{1/2} S_s S_t^{1/2})^{1/2} S_t^{-1/2}`` is the
+    squared-cost optimal map between the Ledoit--Wolf Gaussians. CORAL maps the
+    same moments with a different, arbitrary rotation, so the pair separates
+    "matching the moments" from "matching them optimally".
+    """
+    source_reference = np.asarray(source_reference, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+    source_covariance = LedoitWolf().fit(source_reference).covariance_
+    target_covariance = LedoitWolf().fit(target).covariance_
+    root = symmetric_matrix_power(target_covariance, 0.5)
+    inverse_root = symmetric_matrix_power(target_covariance, -0.5)
+    middle = symmetric_matrix_power(root @ source_covariance @ root, 0.5)
+    transform = inverse_root @ middle @ inverse_root
+    aligned = (target - target.mean(axis=0)) @ transform + source_reference.mean(axis=0)
+    if not np.isfinite(aligned).all():
+        raise FloatingPointError("Gaussian OT alignment produced non-finite values")
+    return aligned.astype(np.float32)
+
+
+def entropic_ot_target_to_source(
+    source_reference: np.ndarray, target: np.ndarray, seed: int
+) -> Tuple[np.ndarray, Dict[str, float]]:
+    """Entropic OT with a barycentric map: the one repair that is not affine.
+
+    Log-domain Sinkhorn on squared Euclidean cost with uniform marginals; each
+    target patient is moved to the barycentre of the source-training patients
+    under its row of the transport plan. The source side is subsampled to at
+    most ``OT_SOURCE_CAP`` patients with a fixed seed to bound the plan. The
+    regularisation is the smallest in ``OT_REGULARISATION_GRID`` whose
+    iteration converges, which is the sharpest plan that can be computed
+    reliably; a plan that collapses the cloud is refused rather than used. No
+    target labels are used anywhere in the choice.
+    """
+    source_reference = np.asarray(source_reference, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+    if len(source_reference) > OT_SOURCE_CAP:
+        rng = np.random.default_rng(seed + OT_SEED_OFFSET)
+        support = source_reference[np.sort(rng.choice(len(source_reference), OT_SOURCE_CAP, replace=False))]
+    else:
+        support = source_reference
+    cost = (
+        np.square(target).sum(axis=1)[:, None]
+        + np.square(support).sum(axis=1)[None, :]
+        - 2.0 * (target @ support.T)
+    )
+    np.maximum(cost, 0.0, out=cost)
+    median_cost = max(float(np.median(cost)), 1e-12)
+    log_a = -math.log(len(target))
+    log_b = -math.log(len(support))
+    source_variance = max(float(np.asarray(source_reference).var(axis=0).sum()), 1e-12)
+    for scale in OT_REGULARISATION_GRID:
+        regularisation = scale * median_cost
+        potential_target = np.zeros(len(target), dtype=np.float64)
+        potential_source = np.zeros(len(support), dtype=np.float64)
+        converged = False
+        iterations = 0
+        for iterations in range(1, OT_ITERATIONS + 1):
+            previous = potential_target
+            potential_target = -regularisation * logsumexp(
+                (potential_source[None, :] - cost) / regularisation + log_b, axis=1
+            )
+            potential_source = -regularisation * logsumexp(
+                (potential_target[:, None] - cost) / regularisation + log_a, axis=0
+            )
+            if float(np.max(np.abs(potential_target - previous))) <= OT_TOLERANCE * regularisation:
+                converged = True
+                break
+        if not converged:
+            continue
+        plan = np.exp(
+            (potential_target[:, None] + potential_source[None, :] - cost) / regularisation
+        )
+        row_mass = plan.sum(axis=1, keepdims=True)
+        if float(row_mass.min()) <= 0.0:
+            continue
+        aligned = (plan / row_mass) @ support
+        if not np.isfinite(aligned).all():
+            continue
+        kept = float(np.asarray(aligned).var(axis=0).sum() / source_variance)
+        if kept < OT_MINIMUM_VARIANCE_KEPT:
+            # A plan this diffuse maps every patient onto nearly one point; report the failure
+            # instead of scoring a collapsed cloud.
+            raise FloatingPointError(
+                f"entropic OT collapsed the target cloud at scale {scale} (variance kept {kept:.4g})"
+            )
+        return aligned.astype(np.float32), {
+            "ot_regularisation": float(regularisation),
+            "ot_regularisation_scale": float(scale),
+            "ot_iterations": float(iterations),
+            "ot_variance_kept": kept,
+            "ot_support_patients": float(len(support)),
+        }
+    raise FloatingPointError("entropic OT did not converge at any regularisation in the grid")
+
+
 def moment_diagnostics(
     source_reference: np.ndarray, target_by_method: Mapping[str, np.ndarray]
 ) -> List[Dict[str, object]]:
@@ -250,6 +410,10 @@ def prepare_context(
     split = patient_masks(metadata[source_name], source_frame, split_seed)
     reference = source_pz[split["train"]]
     target_coral, shrinkage = coral_target_to_source(reference, target_pz)
+    target_subspace, subspace_diagnostic = subspace_alignment_target_to_source(reference, target_pz)
+    target_ot_entropic, entropic_diagnostic = entropic_ot_target_to_source(
+        reference, target_pz, split_seed
+    )
     return {
         "source": source_name,
         "target": target_name,
@@ -262,9 +426,12 @@ def prepare_context(
             "unaligned": target_pz,
             "mean_variance": mean_variance_target_to_source(reference, target_pz),
             "coral": target_coral,
+            "subspace": target_subspace,
+            "ot_gaussian": gaussian_ot_target_to_source(reference, target_pz),
+            "ot_entropic": target_ot_entropic,
         },
         "mean_shift": (reference.mean(axis=0) - target_pz.mean(axis=0)).astype(np.float32),
-        "shrinkage": shrinkage,
+        "shrinkage": {**shrinkage, **subspace_diagnostic, **entropic_diagnostic},
     }
 
 
@@ -546,7 +713,7 @@ def alignment_effects(penalties: pd.DataFrame) -> pd.DataFrame:
     keys = ["backbone", "direction", "source", "target", "attribute"]
     for group_values, subset in penalties.groupby(keys, dropna=False, sort=False):
         pivot = subset.pivot(index="split_index", columns="method", values="external_auroc")
-        for method in ("mean_variance", "coral"):
+        for method in [name for name in ALIGNMENT_METHODS if name != "unaligned"]:
             difference = pivot[method] - pivot["unaligned"]
             record = dict(zip(keys, group_values))
             record.update(
@@ -597,14 +764,18 @@ def bootstrap_statistics(
     for row, (label, _) in enumerate(statistics):
         if len(draws_array):
             low, high = np.quantile(draws_array[:, row], [0.025, 0.975])
+            # One-sided bootstrap p-value against zero, for the Bonferroni adjustment over the
+            # eight settings. (r + 1) / (B + 1) never returns an impossible zero.
+            p_value = (int(np.sum(draws_array[:, row] <= 0.0)) + 1) / (len(draws_array) + 1)
         else:
-            low, high = math.nan, math.nan
+            low, high, p_value = math.nan, math.nan, math.nan
         rows.append(
             {
                 **label,
                 "estimate": float(observed[row]),
                 "ci_low": float(low),
                 "ci_high": float(high),
+                "p_value_above_zero": float(p_value),
                 "valid_replicates": int(len(draws_array)),
             }
         )
@@ -645,7 +816,7 @@ def bootstrap_group_statistics(
                     {**weight("local"), **weight(method, -1.0)},
                 )
             )
-        for method in ("mean_variance", "coral"):
+        for method in [name for name in ALIGNMENT_METHODS if name != "unaligned"]:
             statistics.append(
                 (
                     {**base, "statistic": "aligned_minus_unaligned_external_auroc", "method": method},
@@ -909,7 +1080,7 @@ def main() -> int:
         print("SANITY FAILURE: translation changed an external AUROC", file=sys.stderr)
         return 3
     if gate_status == "failed":
-        print("REPRODUCTION GATE FAILED: split 0 does not reproduce the reference audit", file=sys.stderr)
+        print("REPRODUCTION GATE FAILED: split 0 does not reproduce reference", file=sys.stderr)
         return 4
     print(f"Completed ICASSP extensions (reproduction gate: {gate_status}). Outputs: {output}")
     return 0

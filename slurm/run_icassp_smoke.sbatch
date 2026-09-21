@@ -12,7 +12,7 @@
 
 set -Eeuo pipefail
 
-project_root="${PROJECT_ROOT:-$SLURM_SUBMIT_DIR}"
+project_root="${reference_PROJECT_ROOT:-$SLURM_SUBMIT_DIR}"
 cd "$project_root"
 mkdir -p logs
 source "$project_root/.venv/bin/activate"
@@ -23,4 +23,4 @@ export NUMEXPR_NUM_THREADS=1
 export MPLBACKEND=Agg
 
 # Synthetic toy data only; no credentialed data is read.
-python -m unittest -v tests.test_icassp_extensions
+python -m unittest -v tests.test_icassp_extensions tests.test_icassp_recovery

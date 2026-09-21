@@ -20,6 +20,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 
@@ -30,6 +31,9 @@ ATTRIBUTES = (("sex", "Sex"), ("age65", "Age"))
 DIRECTIONS = ((FWD, r"B$\to$mB", "B→mB"), (REV, r"mB$\to$B", "mB→B"))
 TARGET_OF = {FWD: "mbrset", REV: "brset"}
 NEUTRAL_PDF_METADATA = {"Creator": None, "Producer": None, "CreationDate": None}
+# The printed proceedings are black and white: every series must also differ by hatch or marker.
+HATCHES = {"unaligned": "", "mean_variance": "////", "coral": "...."}
+FEWSHOT_MARKERS = {"scratch": {"marker": "o", "mfc": None}, "anchored": {"marker": "s", "mfc": "white"}}
 COLOURS = {
     "unaligned": "#7f7f7f",
     "mean_variance": "#E69F00",
@@ -50,7 +54,7 @@ def parse_args() -> argparse.Namespace:
         "--audit-dir",
         required=True,
         type=Path,
-        help="reference representation-audit outputs (the gated submission run) for the removal analysis",
+        help="representation-audit outputs (the gated submission run) for the removal analysis",
     )
     parser.add_argument("--paper-dir", required=True, type=Path)
     return parser.parse_args()
@@ -65,6 +69,15 @@ def signed(value: float) -> str:
     magnitude = abs(value)
     digits = 4 if 0 < magnitude < 0.0005 else 3
     return r"\ensuremath{%s%.*f}" % ("+" if value >= 0 else "-", digits, magnitude)
+
+
+def pp(value: float) -> str:
+    """An AUROC difference expressed in percentage points (absolute, not relative), one decimal."""
+    return f"{100.0 * value:.1f}"
+
+
+def signed_pp(value: float) -> str:
+    return r"\ensuremath{%s%.1f}" % ("+" if value >= 0 else "-", abs(100.0 * value))
 
 
 def signed4(value: float) -> str:
@@ -158,6 +171,9 @@ def main() -> int:
     # 3.1 Transport fails in both directions.
     values = [penalty[c]["estimate"] for c in cells]
     macros["icPenMin"], macros["icPenMax"] = f3(min(values)), f3(max(values))
+    # Percentage-point forms for the abstract; the body and Table 1 keep AUROC units.
+    macros["icPenMinPP"], macros["icPenMaxPP"] = pp(min(values)), pp(max(values))
+    macros["icPenMeanPP"] = pp(sum(values) / len(values))
     significant = sum(penalty[c]["ci_low"] > 0 for c in cells)
     macros["icPenNSig"] = str(significant)
     claims.add("every penalty interval excludes zero", significant == len(cells), f"{significant}/{len(cells)}")
@@ -194,7 +210,7 @@ def main() -> int:
 
     probe = geometry[(geometry["value"] == "probe_coefficient_cosine") & geometry["direction"].isin([FWD, REV])]
     macros["icCosProbeMin"], macros["icCosProbeMax"] = f3(probe["mean"].min()), f3(probe["mean"].max())
-    claims.add("readout coefficients weakly aligned (cosine < 0.3)", probe["mean"].max() < 0.3, macros["icCosProbeMax"])
+    claims.add("probe coefficients weakly aligned (cosine < 0.3)", probe["mean"].max() < 0.3, macros["icCosProbeMax"])
 
     # 3.2 Matching moments does not restore transport.
     covariance = moments.groupby(["backbone", "direction", "method"])["covariance_relative_distance"].mean().unstack()
@@ -211,6 +227,10 @@ def main() -> int:
 
     deltas = [coral_delta[c]["estimate"] for c in cells]
     macros["icCoralDeltaMin"], macros["icCoralDeltaMax"] = signed(min(deltas)), signed(max(deltas))
+    macros["icCoralDeltaMinPP"], macros["icCoralDeltaMaxPP"] = signed_pp(min(deltas)), signed_pp(max(deltas))
+    # Largest absolute change, reported in AUROC units in the abstract next to the anchored AUROC values.
+    coral_abs_max = max(abs(d) for d in deltas)
+    macros["icCoralAbsMax"], macros["icCoralAbsMaxPP"] = f3(coral_abs_max), pp(coral_abs_max)
     better = sum(coral_delta[c]["ci_low"] > 0 for c in cells)
     worse = sum(coral_delta[c]["ci_high"] < 0 for c in cells)
     macros["icCoralNBetter"], macros["icCoralNWorse"] = str(better), str(worse)
@@ -236,7 +256,7 @@ def main() -> int:
     st_delta = {c: st(*c, "self_trained_minus_source_auroc") for c in cells}
     st_remaining = {c: st(*c, "remaining_penalty_after_self_training") for c in cells}
     agreement = max(abs(st(*c, "source_auroc")["estimate"] - transported[c]["estimate"]) for c in cells)
-    claims.add("recovery and extension runs agree on the transported readout (< 1e-3)", agreement < 1e-3,
+    claims.add("recovery and extension runs agree on the transported probe (< 1e-3)", agreement < 1e-3,
                f"{agreement:.2e}")
     values = [st_delta[c]["estimate"] for c in cells]
     macros["icStDeltaMin"], macros["icStDeltaMax"] = signed(min(values)), signed(max(values))
@@ -246,6 +266,69 @@ def main() -> int:
     macros["icStRemMax"] = f3(max(st_remaining[c]["estimate"] for c in cells))
     claims.add("penalty after self-training excludes zero everywhere",
                all(st_remaining[c]["ci_low"] > 0 for c in cells), "")
+
+    # Label-free repairs added on 2026-09-18 and read against the rules pre-registered on 2026-09-17
+    # (ICASSP_2027_RECORD.md): Table 3 and Section 3.2. Every repair is reported, whatever its result.
+    gap = {c: local[c]["estimate"] - transported[c]["estimate"] for c in cells}
+    repair_rows = []
+    for method, label in (("mean_variance", "Mean--var."), ("coral", "CORAL"), ("subspace", "Subspace"),
+                          ("ot_gaussian", "Gaussian OT"), ("ot_entropic", "Entropic OT")):
+        delta = {c: iv(*c, "aligned_minus_unaligned_external_auroc", method) for c in cells}
+        after = {c: iv(*c, "transport_penalty", method) for c in cells}
+        external = {c: iv(*c, "external_auroc", method) for c in cells}
+        reduction = 1.0 - covariance[method] / covariance["unaligned"]
+        repair_rows.append({
+            "method": method, "label": label, "reduction": (reduction.min(), reduction.max()),
+            "delta": [delta[c]["estimate"] for c in cells],
+            "up": sum(delta[c]["ci_low"] > 0 for c in cells), "down": sum(delta[c]["ci_high"] < 0 for c in cells),
+            "shares": [delta[c]["estimate"] / gap[c] for c in cells],
+            "after_significant": all(after[c]["ci_low"] > 0 for c in cells),
+            "above_local": sum(external[c]["estimate"] > local[c]["estimate"] for c in cells),
+        })
+    for scheme, label, delta_stat, remain_stat in (
+        ("self_training", "Self-training", "self_trained_minus_source_auroc",
+         "remaining_penalty_after_self_training"),
+        ("confident_self_training", "Confident ST", "confident_self_trained_minus_source_auroc",
+         "remaining_penalty_after_confident_self_training"),
+    ):
+        delta = {c: st(*c, delta_stat) for c in cells}
+        remain = {c: st(*c, remain_stat) for c in cells}
+        ceiling = {c: st(*c, "target_local_auroc")["estimate"] - st(*c, "source_auroc")["estimate"] for c in cells}
+        repair_rows.append({
+            "method": scheme, "label": label, "reduction": None,
+            "delta": [delta[c]["estimate"] for c in cells],
+            "up": sum(delta[c]["ci_low"] > 0 for c in cells), "down": sum(delta[c]["ci_high"] < 0 for c in cells),
+            "shares": [delta[c]["estimate"] / ceiling[c] for c in cells],
+            "after_significant": all(remain[c]["ci_low"] > 0 for c in cells),
+            "above_local": 0,
+        })
+    by_method = {row["method"]: row for row in repair_rows}
+    macros["icNAlign"] = str(len(ext_manifest["alignment_methods"]) - 1)
+    claims.add("five label-free alignments besides no alignment", macros["icNAlign"] == "5", macros["icNAlign"])
+    claims.add("pre-registered rule 1: no label-free repair closes more than half of P in 4 or more settings",
+               all(sum(share_ > 0.5 for share_ in row["shares"]) < 4 for row in repair_rows), "")
+    largest_share = max(max(row["shares"]) for row in repair_rows)
+    macros["icRepairShareMax"] = percent(largest_share)
+    claims.add("no label-free repair closes a quarter of P in any setting", largest_share < 0.25,
+               f"{largest_share:.3f}")
+    claims.add("pre-registered rule 2: entropic OT stays below the target-local reference everywhere",
+               by_method["ot_entropic"]["above_local"] == 0, "")
+    claims.add("penalty after every label-free repair excludes zero everywhere",
+               all(row["after_significant"] for row in repair_rows), "")
+    entropic_kept = moments.loc[moments["method"] == "ot_entropic", "ot_variance_kept"].dropna()
+    claims.add("entropic OT does not collapse the cloud (variance kept > 1% in every split)",
+               len(entropic_kept) > 0 and entropic_kept.min() > 0.01, f"{entropic_kept.min():.3f}")
+    gaussian = by_method["ot_gaussian"]
+    macros["icOtgRedMin"], macros["icOtgRedMax"] = percent(gaussian["reduction"][0]), percent(gaussian["reduction"][1])
+    macros["icOtgDeltaMin"], macros["icOtgDeltaMax"] = signed(min(gaussian["delta"])), signed(max(gaussian["delta"]))
+    macros["icSaNWorse"] = str(by_method["subspace"]["down"])
+    macros["icEotShareMax"] = percent(max(by_method["ot_entropic"]["shares"]))
+    macros["icCstNWorse"] = str(by_method["confident_self_training"]["down"])
+    p_values = [penalty[c]["p_value_above_zero"] for c in cells]
+    bonferroni = min(1.0, len(cells) * max(p_values))
+    macros["icBonfMax"] = f"{bonferroni:.3f}"
+    claims.add("pre-registered rule 3: every penalty survives Bonferroni adjustment over the settings",
+               bonferroni < 0.05, macros["icBonfMax"])
 
     shots = sorted(int(k) for k in few_summary["k"].unique())
     n_splits = int(ext_manifest["split_repeats"])
@@ -267,6 +350,16 @@ def main() -> int:
     for tag, attribute, k in (("AgeMid", "age65", mid), ("AgeMax", "age65", high), ("SexMax", "sex", high)):
         values = share(attribute, k)
         macros[f"icFs{tag}Min"], macros[f"icFs{tag}Max"] = percent(values.min()), percent(values.max())
+        macros[f"icFs{tag}Mean"] = percent(values.mean())
+    claims.add("mean share recovered for age at the middle k exceeds that for sex at the largest k",
+               share("age65", mid).mean() > share("sex", high).mean(),
+               f"{macros['icFsAgeMidMean']} > {macros['icFsSexMaxMean']}")
+    # The abstract states these three without numbers; they must stay true on any regeneration.
+    claims.add("abstract: at the middle k, age closes more than half of the gap on average",
+               share("age65", mid).mean() > 0.5, macros["icFsAgeMidMean"])
+    claims.add("abstract: at the largest k, sex closes less than a third of the gap on average",
+               share("sex", high).mean() < 1.0 / 3.0, macros["icFsSexMaxMean"])
+    claims.add("abstract: the largest k is four times the middle k", high == 4 * mid, f"{high} = 4 x {mid}")
     claims.add("age: the middle k recovers at least 40% of the gap", share("age65", mid).min() >= 0.4,
                macros["icFsAgeMidMin"])
     claims.add("sex recovers less than age at the largest k", share("sex", high).max() < share("age65", high).min(),
@@ -283,7 +376,7 @@ def main() -> int:
         if len(later) == 4 * len([s for s in shots if s >= k]) and (later["gain_scratch"] > 0).all():
             beat_k = k
             break
-    claims.add("age: some k beats the transported readout in >= 97.5% of draws in every setting", beat_k is not None,
+    claims.add("age: some k beats the transported probe in >= 97.5% of draws in every setting", beat_k is not None,
                str(beat_k))
     macros["icFsAgeBeatK"] = str(beat_k if beat_k is not None else "NA")
 
@@ -295,7 +388,7 @@ def main() -> int:
             below_k = k
         else:
             break
-    claims.add("sex: scratch is below the transported readout on average at the smallest k", below_k is not None,
+    claims.add("sex: scratch is below the transported probe on average at the smallest k", below_k is not None,
                str(below_k))
     macros["icFsSexScratchBelowK"] = str(below_k if below_k is not None else "NA")
 
@@ -362,9 +455,9 @@ def main() -> int:
     table = [
         r"\begin{table*}[t]",
         r"\centering",
-        r"\caption{Transport of demographic readouts. Split means over \icNSplits{} source splits; brackets: "
+        r"\caption{Transport of demographic probes. Split means over \icNSplits{} source splits; brackets: "
         r"95\% target-patient bootstrap intervals. ViT: DINOv3 ViT-S/16; CNX: ConvNeXt-Tiny; B: BRSET; "
-        r"mB: mBRSET. $\Delta$: change in transported AUROC after CORAL and after self-training (ST).}",
+        r"mB: mBRSET. $\Delta$: change after CORAL and after self-training (ST).}",
         r"\label{tab:main}",
         r"\setlength{\tabcolsep}{3.5pt}",
         r"\begin{tabular}{lllccccc}",
@@ -394,9 +487,9 @@ def main() -> int:
     controls = [
         r"\begin{table*}[t]",
         r"\centering",
-        r"\caption{Controls. $P$ with readouts refitted and evaluated within referable-DR-negative (DR$-$) and "
-        r"-positive (DR$+$) patients; cosine between source and target readout coefficients and between "
-        r"class-centroid directions; and the change in $P$ when the BRSET readout is fitted on as many labelled "
+        r"\caption{Controls. $P$ with probes refitted and evaluated within referable-DR-negative (DR$-$) and "
+        r"-positive (DR$+$) patients; cosine between source and target probe coefficients and between "
+        r"class-centroid directions; and the change in $P$ when the BRSET probe is fitted on as many labelled "
         r"patients as the mBRSET one (95\% bootstrap interval; B$\to$mB only). Split means over \icNSplits{} splits.}",
         r"\label{tab:controls}",
         r"\setlength{\tabcolsep}{4pt}",
@@ -421,54 +514,106 @@ def main() -> int:
     controls += [r"\bottomrule", r"\end{tabular}", r"\end{table*}"]
     (paper / "table_controls.tex").write_text("\n".join(controls) + "\n", encoding="utf-8")
 
+    # table_repairs.tex (Table 3): every label-free repair, reported whatever its result.
+    repairs = [
+        r"\begin{table}[!t]",
+        r"\centering",
+        r"\caption{Label-free repairs over the \icNCells{} settings: covariance mismatch removed (Cov.), change "
+        r"in transported AUROC, settings whose 95\% interval lies above/below zero, and the largest share of $P$ "
+        r"closed in any setting. Subspace and Gaussian OT maps are affine; entropic OT is not. ST: self-training.}",
+        r"\label{tab:repairs}",
+        r"\setlength{\tabcolsep}{2.5pt}",
+        r"\begin{tabular}{@{}lcccc@{}}",
+        r"\toprule",
+        r"Repair & Cov. & $\Delta$AUROC & Up/down & Closed \\",
+        r"\midrule",
+    ]
+    def table_signed(value: float) -> str:
+        # A range endpoint that rounds to zero is printed as 0.000: the text-mode ``signed`` switches to
+        # four decimals for small values, which would show the confident-ST maximum as -0.0000.
+        return "0.000" if abs(value) < 0.0005 else signed(value)
+
+    for row in repair_rows:
+        if row["reduction"] is None:
+            removed = "---"
+        else:
+            removed = f"{percent(row['reduction'][0])}--{percent(row['reduction'][1])}\\%"
+        repairs.append(
+            f"{row['label']} & {removed} & {table_signed(min(row['delta']))} to {table_signed(max(row['delta']))} & "
+            f"{row['up']}/{row['down']} & {percent(max(0.0, max(row['shares'])))}\\% \\\\"
+        )
+        if row["method"] == "ot_entropic":
+            repairs.append(r"\midrule")
+    repairs += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    (paper / "table_repairs.tex").write_text("\n".join(repairs) + "\n", encoding="utf-8")
+
     # Figures.
     plt.rcParams.update({
-        "font.size": 7.5, "font.family": "serif",
+        "font.size": 9, "font.family": "serif",
         "font.serif": ["Times New Roman", "Times", "Nimbus Roman", "DejaVu Serif"],
         "pdf.fonttype": 42, "ps.fonttype": 42, "axes.linewidth": 0.6,
         "xtick.major.width": 0.6, "ytick.major.width": 0.6, "legend.frameon": False,
+        "hatch.linewidth": 0.5,
     })
 
-    # Stacked panels, each a full column wide, so that every label can be set at >= 6.5 pt.
-    figure, (ax_a, ax_b) = plt.subplots(2, 1, figsize=(3.39, 3.4), gridspec_kw={"height_ratios": [1.0, 1.45]})
-    groups = [(b, d) for b, _, _ in BACKBONES for d, _, _ in DIRECTIONS]
+    # Two panels, a full column wide, with categories grouped by transfer direction so that every tick
+    # label needs only two short lines at 9 pt. The covariance bars were dropped on 2026-09-18 and
+    # restored on 2026-09-20 at Pengyang's request; Table 3 still carries the mismatch removed by the
+    # repairs the bars leave out. The canvas width equals the column width (86 mm), so the printed type
+    # size is the size set here; ICASSP asks for >= 9 pt throughout, figures included.
+    # Canvas 3.6 in; main.tex includes it at a fraction of the column so that the drawn Fig. 1 fits on
+    # page 2 (2026-09-21: the GPU queue could not regenerate figures before the deadline, so the last
+    # bit of vertical space is taken in LaTeX rather than here). Do not scale here and there at once.
+    figure, (ax_a, ax_b) = plt.subplots(2, 1, figsize=(3.39, 3.6), gridspec_kw={"height_ratios": [0.75, 1.9]})
+    short = {b: s for b, _, s in BACKBONES}
+    arrow = {d: s for d, _, s in DIRECTIONS}
+    groups = [(b, d) for d in (FWD, REV) for b, _, _ in BACKBONES]
     width = 0.26
     for offset, (method, label) in zip((-width, 0.0, width), (("unaligned", "Unaligned"),
                                                              ("mean_variance", "Mean–var."), ("coral", "CORAL"))):
         ax_a.bar([i + offset for i in range(len(groups))], [covariance.loc[(b, d), method] for b, d in groups],
-                 width=width, color=COLOURS[method], label=label)
+                 width=width, color=COLOURS[method], label=label, hatch=HATCHES[method],
+                 edgecolor="black", linewidth=0.4)
     ax_a.set_yscale("log")
     ax_a.set_xticks(range(len(groups)))
-    short = {b: s for b, _, s in BACKBONES}
-    arrow = {d: s for d, _, s in DIRECTIONS}
-    ax_a.set_xticklabels([f"{short[b]} {arrow[d]}" for b, d in groups], fontsize=7)
-    ax_a.set_ylabel("Relative cov. distance")
-    ax_a.set_title("(a)", loc="left", fontsize=8)
-    for i, c in enumerate(cells):
-        for shift, (series, method, marker) in zip((-0.2, 0.0, 0.2), (
+    ax_a.set_xticklabels([f"{short[b]}\n{arrow[d]}" for b, d in groups], fontsize=9)
+    ax_a.set_ylabel("Cov. distance")
+    ax_a.set_title("(a) Covariance mismatch", loc="left", fontsize=9)
+    ordered = [c for direction in (FWD, REV) for c in cells if c[2] == direction]
+    for i, c in enumerate(ordered):
+        for shift, (series, method, marker) in zip((-0.24, 0.0, 0.24), (
                 (transported, "unaligned", "o"), (coral_external, "coral", "D"), (local, "target_local", "^"))):
             row = series[c]
             ax_b.errorbar(i + shift, row["estimate"], yerr=[[row["estimate"] - row["ci_low"]],
                                                             [row["ci_high"] - row["estimate"]]],
-                          fmt=marker, ms=3.4, lw=0.8, color=COLOURS[method], capsize=0)
-    ax_b.set_xticks(range(len(cells)))
-    ax_b.set_xticklabels([f"{short[b]}\n{dict(ATTRIBUTES)[a]}\n{arrow[d]}" for b, a, d in cells], fontsize=6.5)
+                          fmt=marker, ms=3.6, lw=0.8, color=COLOURS[method], capsize=0)
+    ax_b.set_xticks(range(len(ordered)))
+    ax_b.set_xticklabels([f"{short[b]}\n{dict(ATTRIBUTES)[a]}" for b, a, _ in ordered], fontsize=9)
     ax_b.set_ylabel("AUROC")
     ax_b.axhline(0.5, color="#bbbbbb", lw=0.5, ls=":")
-    ax_b.set_title("(b)", loc="left", fontsize=8)
+    # Direction of each block of four, written inside the empty band above the highest interval (< 0.94).
+    half = len(ordered) // 2
+    ax_b.axvline(half - 0.5, color="#999999", lw=0.6)
+    for centre, direction in ((half / 2 - 0.5, FWD), (half + half / 2 - 0.5, REV)):
+        ax_b.text(centre, 0.985, arrow[direction], ha="center", va="top", fontsize=9)
+    ax_b.set_title("(b) AUROC before and after CORAL", loc="left", fontsize=9)
     ax_b.set_ylim(0.45, 1.0)
-    figure.tight_layout(pad=0.3)
-    # One legend for both panels, above them: the colours mean the same thing in (a) and (b).
-    handles = [plt.Line2D([], [], marker=m, ls="", color=COLOURS[k], ms=3.2, label=l) for k, m, l in (
-        ("unaligned", "o", "Unaligned (transported)"), ("mean_variance", "s", "Mean–var."),
-        ("coral", "D", "CORAL"), ("target_local", "^", "Target-local"))]
-    figure.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=2, fontsize=7,
+    # The legend sits inside the canvas and the file is saved at its exact size (no tight bounding box):
+    # a tight box grew to 3.66 in with the y labels and was scaled down to 8.3 pt in the paper.
+    figure.tight_layout(pad=0.3, rect=(0, 0, 1, 0.88))
+    # Hatched patches identify the bars of (a); marker shapes identify the points of (b).
+    handles = [Patch(facecolor=COLOURS[k], edgecolor="black", linewidth=0.4, hatch=HATCHES[k], label=l)
+               for k, l in (("unaligned", "Unaligned"), ("mean_variance", "Mean–var."), ("coral", "CORAL"))]
+    handles += [plt.Line2D([], [], marker=m, ls="", color=COLOURS[k], ms=3.2, label=l) for k, m, l in (
+        ("unaligned", "o", "Transported"), ("coral", "D", "After CORAL"), ("target_local", "^", "Target-local"))]
+    figure.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=3, fontsize=9,
                   handletextpad=0.3, columnspacing=0.8)
     # Neutral PDF metadata: no creator/producer strings in the figure files.
-    figure.savefig(paper / "figures" / "moments.pdf", bbox_inches="tight", metadata=NEUTRAL_PDF_METADATA)
+    figure.savefig(paper / "figures" / "moments.pdf", metadata=NEUTRAL_PDF_METADATA)
     plt.close(figure)
 
-    figure, axes = plt.subplots(2, 4, figsize=(7.0, 3.0), sharex=True)
+    # 3.1 in rather than 3.3 in; main.tex scales it down further (see the note on Fig. 2).
+    figure, axes = plt.subplots(2, 4, figsize=(7.0, 3.1), sharex=True)
     columns = [(b, d) for b, _, _ in BACKBONES for d, _, _ in DIRECTIONS]
     for row_index, (a, a_label) in enumerate(ATTRIBUTES):
         for col_index, (b, d) in enumerate(columns):
@@ -477,7 +622,9 @@ def main() -> int:
             for method, label in (("scratch", "Scratch"), ("anchored", "L2-SP")):
                 stats = subset[subset["method"] == method].groupby("k")["auroc"]
                 mean, lo, hi = stats.mean(), stats.quantile(0.025), stats.quantile(0.975)
-                ax.plot(mean.index, mean.values, color=COLOURS[method], lw=1.0, marker="o", ms=2.0, label=label)
+                style = FEWSHOT_MARKERS[method]
+                ax.plot(mean.index, mean.values, color=COLOURS[method], lw=1.0, marker=style["marker"], ms=3.0,
+                        mfc=style["mfc"] or COLOURS[method], mec=COLOURS[method], label=label)
                 ax.fill_between(mean.index, lo.values, hi.values, color=COLOURS[method], alpha=0.15, lw=0)
             source_level = subset[subset["method"] == "source_readout"]["auroc"].mean()
             local_level = subset[subset["method"] == "target_local"]["auroc"].mean()
@@ -487,19 +634,20 @@ def main() -> int:
             ax.axhline(st_level, color=COLOURS["self_training"], lw=0.8, ls="-.", label="Self-training")
             ax.set_xscale("log")
             ax.set_xticks(shots)
-            ax.set_xticklabels([str(k) for k in shots], fontsize=7)
+            ax.set_xticklabels([str(k) for k in shots], fontsize=9)
             ax.minorticks_off()
             if row_index == 0:
-                ax.set_title(f"{dict((x, y) for x, y, _ in BACKBONES)[b]}, {arrow[d]}", fontsize=7.5)
+                ax.set_title(f"{dict((x, y) for x, y, _ in BACKBONES)[b]}, {arrow[d]}", fontsize=9)
             if col_index == 0:
                 ax.set_ylabel(f"{a_label} AUROC")
-            if row_index == 1:
-                ax.set_xlabel("Labelled target patients $k$")
-    figure.tight_layout(pad=0.3)
+    # One x-axis label for the whole figure: at 9 pt, four copies under the bottom panels collide.
+    figure.tight_layout(pad=0.3, rect=(0, 0.06, 1, 0.91))
+    figure.text(0.5, 0.005, "Labelled target patients $k$", ha="center", va="bottom", fontsize=9)
     handles, labels = axes[0, 0].get_legend_handles_labels()
     # Anchored by its lower edge above the panels, so it cannot cover the column titles.
-    figure.legend(handles, labels, loc="lower center", ncol=5, fontsize=7.5, bbox_to_anchor=(0.5, 1.0))
-    figure.savefig(paper / "figures" / "fewshot.pdf", bbox_inches="tight", metadata=NEUTRAL_PDF_METADATA)
+    figure.legend(handles, labels, loc="upper center", ncol=5, fontsize=9, bbox_to_anchor=(0.5, 1.0))
+    # Saved at the exact canvas size (7.0 in = \textwidth), so the printed type is exactly 9 pt.
+    figure.savefig(paper / "figures" / "fewshot.pdf", metadata=NEUTRAL_PDF_METADATA)
     plt.close(figure)
 
     inputs = sorted(list(ext.glob("*.csv")) + list(ext.glob("*.json")) + list(rec.glob("*.csv"))
