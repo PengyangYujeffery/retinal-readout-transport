@@ -12,7 +12,7 @@
 
 set -Eeuo pipefail
 
-project_root="${reference_PROJECT_ROOT:-$SLURM_SUBMIT_DIR}"
+project_root="${PROJECT_ROOT:-$SLURM_SUBMIT_DIR}"
 cd "$project_root"
 mkdir -p logs
 source "$project_root/.venv/bin/activate"

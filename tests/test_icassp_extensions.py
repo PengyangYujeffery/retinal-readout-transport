@@ -168,7 +168,7 @@ class IcasspExtensionTest(unittest.TestCase):
 
 
 class LabelFreeRepairTest(unittest.TestCase):
-    """Properties of the three repairs added on 2026-09-18, checked on their own.
+    """Properties of the three added repairs, checked on their own.
 
     They are asserted here rather than on the pipeline's synthetic cohorts because those are small
     enough that Ledoit--Wolf shrinkage dominates, which makes a sample-covariance distance a

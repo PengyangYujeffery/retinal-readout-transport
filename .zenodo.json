@@ -1,6 +1,6 @@
 {
   "title": "Demographic probe transport in frozen retinal embeddings: code and aggregate results",
-  "description": "Code and aggregate results for a study of whether a linear probe that predicts sex or age from frozen retinal embeddings remains valid when it is moved to another clinical setting (BRSET clinic photographs and mBRSET handheld screening photographs), and of what repairs it: moment alignment, self-training and few-shot re-estimation. No credentialed data is included; every file under results/ is an aggregate over patients.",
+  "description": "Code and aggregate results for a study of whether a linear probe that predicts sex or age from frozen retinal embeddings remains valid when it is moved to another clinical setting (BRSET clinic photographs and mBRSET handheld screening photographs), and of what repairs it: moment alignment, subspace alignment, optimal-transport maps, self-training and few-shot re-estimation. No credentialed data is included; every file under results/ is an aggregate over patients.",
   "upload_type": "software",
   "license": "MIT",
   "access_right": "open",

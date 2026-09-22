@@ -92,12 +92,12 @@ ALIGNMENT_METHODS = (
 )
 TRANSLATION_TOLERANCE = 1e-9
 
-# Pre-registered on 2026-09-17 (ICASSP_2027_RECORD.md), fixed before the first run so that no
-# hyper-parameter is chosen after seeing a result. Subspace alignment and the Gaussian OT map are
+# Fixed before the first run so that no hyper-parameter is chosen after seeing a result.
+# Subspace alignment and the Gaussian OT map are
 # affine, so Eq. (2) of the paper covers them; the entropic-OT barycentric map is not, which is
 # exactly why it is included.
 SUBSPACE_VARIANCE = 0.95
-# Amended 2026-09-18, before any AUROC was computed, on a geometry-only diagnostic: at a fixed scale
+# Amended before any AUROC was computed, on a geometry-only diagnostic: at a fixed scale
 # of 0.05 the Sinkhorn plan is so diffuse that each target patient is spread over about 1,400 source
 # patients and the mapped cloud keeps 0.06% of the source variance -- every patient lands on almost
 # the same point, which would make this repair fail for a numerical reason. The scale is therefore

@@ -19,7 +19,7 @@ project_root="${PROJECT_ROOT:?Set PROJECT_ROOT to the repository path}"
 data_root="${DATA_ROOT:?Set DATA_ROOT to the protected data path}"
 extension_output="${ICASSP_OUTPUT_DIR:-$project_root/outputs/icassp}"
 recovery_output="${RECOVERY_OUTPUT_DIR:-$project_root/outputs/icassp_recovery}"
-reference="${ICASSP_REFERENCE:-$project_root/outputs/representation_submission_20260908/demographic_probe_metrics.csv}"
+reference="${ICASSP_REFERENCE:-$project_root/results/audit/demographic_probe_metrics.csv}"
 threads=$(( ${SLURM_CPUS_PER_TASK:-64} / 2 ))
 
 cd "$project_root"

@@ -15,7 +15,7 @@ set -Eeuo pipefail
 project_root="${PROJECT_ROOT:?Set PROJECT_ROOT to the repository path}"
 data_root="${DATA_ROOT:?Set DATA_ROOT to the protected data path}"
 output_dir="${ICASSP_OUTPUT_DIR:-$project_root/outputs/icassp}"
-reference="${ICASSP_REFERENCE:-$project_root/outputs/representation_submission_20260908/demographic_probe_metrics.csv}"
+reference="${ICASSP_REFERENCE:-$project_root/results/audit/demographic_probe_metrics.csv}"
 split_repeats="${ICASSP_SPLIT_REPEATS:-5}"
 cv_repeats="${ICASSP_CV_REPEATS:-5}"
 bootstrap_replicates="${ICASSP_BOOTSTRAP_REPLICATES:-2000}"

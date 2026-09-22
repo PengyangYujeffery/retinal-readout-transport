@@ -21,6 +21,10 @@ affine, so it is not covered by the argument that bounds the affine family — a
 runs in two schemes, one pseudo-labelling every target patient and one keeping only the confident
 half. None of them closes more than a quarter of the transport penalty in any setting.
 
+Release v1.2 changes no result. It drops the outputs of a direction-removal analysis that the paper
+no longer reports, adds the data-access links below, and repairs the job scripts that had picked up
+a wrong variable name and an internal default path.
+
 `scripts/` has the analyses: the transport measurement, the alignment and self-training repairs, the
 few-shot re-estimation, and the script that turns the result tables into the numbers, tables and
 figures of the paper. `slurm/` has the job scripts we ran on MeluXina; they take the cluster account
@@ -38,6 +42,17 @@ metadata tables, the embeddings, the fitted models and any row-level prediction.
 
 If you want to reproduce the study, get credentialed on PhysioNet, sign the agreement, download the
 data yourself and keep it in access-controlled storage.
+
+The analysis reads the released embeddings, not the images. Apply for access at the source, which is
+where the licence is granted:
+
+- Embeddings (what these scripts read): *Embedding-Based Representations for BRSET and mBRSET*
+  v1.0.0, PhysioNet, credentialed access — <https://doi.org/10.13026/1h4p-vz70>
+- BRSET: Nakayama et al., *PLOS Digital Health* 2024 — <https://doi.org/10.1371/journal.pdig.0000454>
+- mBRSET: Wu et al., *Scientific Data* 2025 — <https://doi.org/10.1038/s41597-025-04627-3>
+
+This repository is archived at <https://doi.org/10.5281/zenodo.22794930>; that DOI always resolves to
+the latest version.
 
 ## Running it
 

@@ -62,8 +62,8 @@ from run_icassp_extensions import (  # noqa: E402
 
 # "source_readout", not "source": the frames already carry a "source" dataset column.
 FEW_SHOT_METHODS = ("source_readout", "scratch", "anchored", "target_local")
-# Pre-registered 2026-09-17: the second self-training scheme keeps the most confident half of each
-# pseudo-class. Fixed before the first run, never tuned against a result.
+# The second self-training scheme keeps the most confident half of each pseudo-class.
+# Fixed before the first run, never tuned against a result.
 CONFIDENCE_FRACTION = 0.5
 ZERO_PRIOR_COEF_TOLERANCE = 1e-3  # relative L2 difference of coefficient vectors
 STRONG_PRIOR_C = 1e-12
@@ -151,7 +151,7 @@ def self_training(
 
     ``confidence_fraction`` < 1 keeps only that share of each pseudo-class,
     the patients furthest from the decision threshold. It is the second
-    self-training scheme pre-registered on 2026-09-17: the standard objection
+    self-training scheme, fixed before the first run: the standard objection
     to the first is that pseudo-labelling every patient propagates the source
     probe's mistakes, so the confident variant is the fairer test.
     """

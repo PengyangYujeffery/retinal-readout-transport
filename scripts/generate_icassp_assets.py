@@ -128,11 +128,18 @@ def main() -> int:
     rec_manifest = json.loads((rec / "recovery_manifest.json").read_text(encoding="utf-8"))
     cohort = pd.read_csv(args.cohort_summary).set_index("dataset")
     audit = args.audit_dir
-    audit_manifest = json.loads((audit / "representation_manifest.json").read_text(encoding="utf-8"))
-    metric_contrasts = pd.read_csv(audit / "residualization_metric_contrasts.csv")
-    gap_contrasts = pd.read_csv(audit / "residualization_gap_contrasts.csv")
-    residual_gaps = pd.read_csv(audit / "residualization_gaps.csv")
-    random_controls = pd.read_csv(audit / "random_projection_controls.csv")
+    # The direction-removal analysis is no longer part of the paper. Its inputs are optional: when they
+    # are absent the block below is skipped and the icRm* macros are simply not produced.
+    removal_inputs = [audit / name for name in (
+        "representation_manifest.json", "residualization_metric_contrasts.csv",
+        "residualization_gap_contrasts.csv", "residualization_gaps.csv", "random_projection_controls.csv")]
+    removal_available = all(path.exists() for path in removal_inputs)
+    if removal_available:
+        audit_manifest = json.loads(removal_inputs[0].read_text(encoding="utf-8"))
+        metric_contrasts = pd.read_csv(removal_inputs[1])
+        gap_contrasts = pd.read_csv(removal_inputs[2])
+        residual_gaps = pd.read_csv(removal_inputs[3])
+        random_controls = pd.read_csv(removal_inputs[4])
 
     claims.add("reproduction gate passed (12/12)", len(gate) == 12 and gate["passed"].astype(str).eq("True").all()
                and ext_manifest.get("reproduction_gate") == "passed", f"{int(gate['passed'].astype(str).eq('True').sum())}/12")
@@ -267,8 +274,8 @@ def main() -> int:
     claims.add("penalty after self-training excludes zero everywhere",
                all(st_remaining[c]["ci_low"] > 0 for c in cells), "")
 
-    # Label-free repairs added on 2026-09-18 and read against the rules pre-registered on 2026-09-17
-    # (ICASSP_2027_RECORD.md): Table 3 and Section 3.2. Every repair is reported, whatever its result.
+    # Label-free repairs, read against reading rules fixed before the run: Table 3 and Section 3.2.
+    # Every repair is reported, whatever its result.
     gap = {c: local[c]["estimate"] - transported[c]["estimate"] for c in cells}
     repair_rows = []
     for method, label in (("mean_variance", "Mean--var."), ("coral", "CORAL"), ("subspace", "Subspace"),
@@ -398,44 +405,47 @@ def main() -> int:
     claims.add("sex: L2-SP beats scratch at the smallest k in every setting",
                len(anchored) == 4 and (anchored["anchored_minus_scratch"] > 0).all(), macros["icFsAnchorSexMin"])
 
-    # 3.4 Removal of source-defined directions (reference audit outputs, BRSET -> mBRSET only).
-    removal_auc = metric_contrasts[
-        (metric_contrasts["setting"] == "external_full") & (metric_contrasts["method"] == "joint_erased")
-        & (metric_contrasts["metric"] == "auroc")
-    ]
-    removal_gap = gap_contrasts[
-        (gap_contrasts["setting"] == "external_full") & (gap_contrasts["method"] == "joint_erased")
-        & (gap_contrasts["attribute"] == "sex_age") & (gap_contrasts["metric"] == "sensitivity")
-    ]
-    claims.add("removal contrasts cover both backbones", len(removal_auc) == 2 and len(removal_gap) == 2,
-               f"{len(removal_auc)}/{len(removal_gap)}")
-    macros["icRmSplits"] = str(int(audit_manifest["split_repeats"]))
-    macros["icRmRandN"] = str(int(audit_manifest["random_rank_matched_controls"]))
-    low_auc = float(removal_auc["min_method_minus_baseline"].min())
-    high_auc = float(removal_auc["max_method_minus_baseline"].max())
-    macros["icRmAucMin"], macros["icRmAucMax"] = signed4(low_auc), signed4(high_auc)
-    claims.add("removal changes external AUROC by less than 0.005", max(abs(low_auc), abs(high_auc)) < 0.005,
-               f"{max(abs(low_auc), abs(high_auc)):.4f}")
-    decreased = int(removal_gap["improved_splits"].sum())
-    pairs = int(removal_gap["n_splits"].sum())
-    macros["icRmGapDecreased"], macros["icRmGapPairs"] = str(decreased), str(pairs)
-    claims.add("removal reduces the sensitivity gap in fewer than half of backbone-split pairs",
-               decreased < pairs / 2, f"{decreased}/{pairs}")
-    for backbone, tag in (("vits16", "Vit"), ("convnext_tiny", "Cnx")):
-        observed = residual_gaps[
-            (residual_gaps["backbone"] == backbone) & (residual_gaps["method"] == "joint_erased")
-            & (residual_gaps["split_index"] == 0) & (residual_gaps["setting"] == "external_full")
-            & (residual_gaps["attribute"] == "sex_age") & (residual_gaps["metric"] == "sensitivity")
-        ]["gap_max_minus_min"]
-        if len(observed) != 1:
-            raise AssertionError(f"{len(observed)} joint-removal gap rows for {backbone}")
-        controls_gap = random_controls[random_controls["backbone"] == backbone]["sex_age_sensitivity_gap"]
-        at_most = int((controls_gap <= float(observed.iloc[0]) + 1e-12).sum())
-        macros[f"icRmRandLe{tag}"] = str(at_most)
-        claims.add(f"{backbone}: random-projection count matches the manifest",
-                   len(controls_gap) == int(audit_manifest["random_rank_matched_controls"]), str(len(controls_gap)))
-        claims.add(f"{backbone}: source-defined removal is no better than 95% of random projections",
-                   at_most >= 0.05 * len(controls_gap), f"{at_most}/{len(controls_gap)}")
+    # Removal of source-defined directions, from the earlier audit (BRSET -> mBRSET only). Kept for
+    # anyone who wants the numbers; the paper reports the transport analysis above instead.
+    if removal_available:
+        removal_auc = metric_contrasts[
+            (metric_contrasts["setting"] == "external_full") & (metric_contrasts["method"] == "joint_erased")
+            & (metric_contrasts["metric"] == "auroc")
+        ]
+        removal_gap = gap_contrasts[
+            (gap_contrasts["setting"] == "external_full") & (gap_contrasts["method"] == "joint_erased")
+            & (gap_contrasts["attribute"] == "sex_age") & (gap_contrasts["metric"] == "sensitivity")
+        ]
+        claims.add("removal contrasts cover both backbones", len(removal_auc) == 2 and len(removal_gap) == 2,
+                   f"{len(removal_auc)}/{len(removal_gap)}")
+        macros["icRmSplits"] = str(int(audit_manifest["split_repeats"]))
+        macros["icRmRandN"] = str(int(audit_manifest["random_rank_matched_controls"]))
+        low_auc = float(removal_auc["min_method_minus_baseline"].min())
+        high_auc = float(removal_auc["max_method_minus_baseline"].max())
+        macros["icRmAucMin"], macros["icRmAucMax"] = signed4(low_auc), signed4(high_auc)
+        claims.add("removal changes external AUROC by less than 0.005", max(abs(low_auc), abs(high_auc)) < 0.005,
+                   f"{max(abs(low_auc), abs(high_auc)):.4f}")
+        decreased = int(removal_gap["improved_splits"].sum())
+        pairs = int(removal_gap["n_splits"].sum())
+        macros["icRmGapDecreased"], macros["icRmGapPairs"] = str(decreased), str(pairs)
+        claims.add("removal reduces the sensitivity gap in fewer than half of backbone-split pairs",
+                   decreased < pairs / 2, f"{decreased}/{pairs}")
+        for backbone, tag in (("vits16", "Vit"), ("convnext_tiny", "Cnx")):
+            observed = residual_gaps[
+                (residual_gaps["backbone"] == backbone) & (residual_gaps["method"] == "joint_erased")
+                & (residual_gaps["split_index"] == 0) & (residual_gaps["setting"] == "external_full")
+                & (residual_gaps["attribute"] == "sex_age") & (residual_gaps["metric"] == "sensitivity")
+            ]["gap_max_minus_min"]
+            if len(observed) != 1:
+                raise AssertionError(f"{len(observed)} joint-removal gap rows for {backbone}")
+            controls_gap = random_controls[random_controls["backbone"] == backbone]["sex_age_sensitivity_gap"]
+            at_most = int((controls_gap <= float(observed.iloc[0]) + 1e-12).sum())
+            macros[f"icRmRandLe{tag}"] = str(at_most)
+            claims.add(f"{backbone}: random-projection count matches the manifest",
+                       len(controls_gap) == int(audit_manifest["random_rank_matched_controls"]),
+                       str(len(controls_gap)))
+            claims.add(f"{backbone}: source-defined removal is no better than 95% of random projections",
+                       at_most >= 0.05 * len(controls_gap), f"{at_most}/{len(controls_gap)}")
 
     # numbers.tex
     for name in macros:
@@ -557,13 +567,12 @@ def main() -> int:
     })
 
     # Two panels, a full column wide, with categories grouped by transfer direction so that every tick
-    # label needs only two short lines at 9 pt. The covariance bars were dropped on 2026-09-18 and
-    # restored on 2026-09-20 at Pengyang's request; Table 3 still carries the mismatch removed by the
-    # repairs the bars leave out. The canvas width equals the column width (86 mm), so the printed type
+    # label needs only two short lines at 9 pt. Table 3 carries the covariance mismatch removed by the
+    # repairs these bars leave out. The canvas width equals the column width (86 mm), so the printed type
     # size is the size set here; ICASSP asks for >= 9 pt throughout, figures included.
     # Canvas 3.6 in; main.tex includes it at a fraction of the column so that the drawn Fig. 1 fits on
-    # page 2 (2026-09-21: the GPU queue could not regenerate figures before the deadline, so the last
-    # bit of vertical space is taken in LaTeX rather than here). Do not scale here and there at once.
+    # page 2; the last bit of vertical space is taken in LaTeX rather than here.
+    # Do not scale here and there at once.
     figure, (ax_a, ax_b) = plt.subplots(2, 1, figsize=(3.39, 3.6), gridspec_kw={"height_ratios": [0.75, 1.9]})
     short = {b: s for b, _, s in BACKBONES}
     arrow = {d: s for d, _, s in DIRECTIONS}
@@ -652,9 +661,7 @@ def main() -> int:
 
     inputs = sorted(list(ext.glob("*.csv")) + list(ext.glob("*.json")) + list(rec.glob("*.csv"))
                     + list(rec.glob("*.json")) + [args.cohort_summary]
-                    + [audit / "representation_manifest.json", audit / "residualization_metric_contrasts.csv",
-                       audit / "residualization_gap_contrasts.csv", audit / "residualization_gaps.csv",
-                       audit / "random_projection_controls.csv"])
+                    + [path for path in removal_inputs if path.exists()])
     (paper / "numbers_provenance.json").write_text(json.dumps(
         {"inputs": {str(path): md5(path) for path in inputs}, "n_macros": len(macros)}, indent=2), encoding="utf-8")
     pd.DataFrame(claims.rows).to_csv(paper / "claims_check.csv", index=False)
