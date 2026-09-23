@@ -465,7 +465,7 @@ def main() -> int:
     table = [
         r"\begin{table*}[t]",
         r"\centering",
-        r"\caption{Transport of demographic probes. Split means over \icNSplits{} source splits; brackets: "
+        r"\caption{Transport of demographic probes (AUROC). Split means over \icNSplits{} source splits; brackets: "
         r"95\% target-patient bootstrap intervals. ViT: DINOv3 ViT-S/16; CNX: ConvNeXt-Tiny; B: BRSET; "
         r"mB: mBRSET. $\Delta$: change after CORAL and after self-training (ST).}",
         r"\label{tab:main}",
